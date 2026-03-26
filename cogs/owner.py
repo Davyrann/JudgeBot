@@ -33,7 +33,7 @@ class Owner(commands.Cog, name="owner"):
         if scope == "global":
             await context.bot.tree.sync()
             embed = discord.Embed(
-                description="Slash commands have been globally synchronized.",
+                 description="Slash commands have been globally synchronized.",
                 color=0xBEBEFE,
             )
             await context.send(embed=embed)
@@ -162,12 +162,12 @@ class Owner(commands.Cog, name="owner"):
             embed = discord.Embed(
                 description=f"Could not reload the `{cog}` cog.", color=0xE02B2B
             )
-            await context.send(embed=embed)
+            await context.send(embed=embed, ephemeral=True)
             return
         embed = discord.Embed(
             description=f"Successfully reloaded the `{cog}` cog.", color=0xBEBEFE
         )
-        await context.send(embed=embed)
+        await context.send(embed=embed, ephemeral=True)
 
     @commands.hybrid_command(
         name="shutdown",

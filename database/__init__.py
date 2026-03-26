@@ -94,3 +94,88 @@ class DatabaseManager:
             for row in result:
                 result_list.append(row)
             return result_list
+
+    async def add_team_member(self, nama: str, rank: str, jabatan: str) -> dict:
+        """
+        Fungsi ini akan menambahkan member ke dalam database
+        :param nama: Nama member
+        :param rank: Rank member
+        :param jabatan: Jabatan User di team
+        :return:
+        """
+        try:
+            await self.connection.execute(
+                "INSERT INTO team_member(nama, rank, jabatan) VALUES (?, ?, ?)",
+                (
+                    nama,
+                    rank,
+                    jabatan
+                )
+            )
+            await self.connection.commit()
+            return {"success": True}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    async def remove_team_member(self, member_id: int) -> dict:
+        """
+        Fungsi untuk menghapus member di database
+        :param member_id: Id member
+        :return: None
+        """
+        try:
+            await self.connection.execute(
+                "DELETE FROM team_member WHERE id=?",
+                (
+                    member_id,
+                )
+            )
+            await self.connection.commit()
+            return {"success": True}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    async def edit_team_member(self, member_id: int, nama: str, jabatan: str, rank: str) -> dict:
+        """
+        Fungsi untuk mengedit member di database
+        :param member_id: Id member di database
+        :param nama: Nama Member
+        :param rank: Rank Member di Game server marlin
+        :param jabatan: Jabatan User di team
+        :return: Dict yang berisi status sukses atau tidaknya edit member
+        """
+        try:
+            await self.connection.execute(
+                "UPDATE team_member SET nama=?, rank=?, jabatan=? WHERE member_id=?",
+                (
+                    nama,
+                    rank,
+                    jabatan,
+                    member_id
+                )
+            )
+            await self.connection.commit()
+            return {"success": True}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+
+    async def get_team_member(self) -> list:
+        """
+        Fungsi ini akan mengembalikan list dari user yang sudah disimpan
+
+        :return: List semua member
+        """
+        async with self.connection.execute("SELECT nama, jabatan, rank FROM team_member") as cursor:
+            return await cursor.fetchall()
+
+
+
+    async def get_all_member_id(self) -> list:
+        """
+        Fungsi ini akan mengembalikan list dari id member yang sudah disimpan
+
+        :return: List semua id member
+        """
+        async with self.connection.execute("SELECT id, nama FROM team_member") as cursor:
+            return await cursor.fetchall()
