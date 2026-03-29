@@ -1,7 +1,8 @@
 services:
   discord-bot:
     build: .
-    image: python-discord-bot-template
+    container_name: judgebot
+    image: dachenxi/judgebot:dev
     env_file:
       - .env
     volumes:
