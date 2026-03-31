@@ -45,6 +45,7 @@ class TeamManagement(commands.Cog, name="teammanagement"):
     def __init__(self, bot) -> None:
         self.bot = bot
         self.member_cache: dict = {}
+        self.settings_cache: dict = {}
 
     async def member_id_autocomplete(self, interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
         member_id_list = await self.bot.database.get_all_member_id()
@@ -320,21 +321,160 @@ class TeamManagement(commands.Cog, name="teammanagement"):
                 ephemeral=True
             )
 
-    async def cog_load(self) -> None:
-        team_member = await self.bot.database.get_team_member()
-        if team_member['success'] and team_member['result']:
-            group_guild_id = defaultdict(list)
+    @teamadmin.command(
+        name='settings',
+        description="Team settings"
+    )
+    @app_commands.describe(
+        settings_name="Nama setting yang ingin diubah",
+        channel="Nilai setting yang ingin diubah"
+    )
+    @app_commands.choices(
+        settings_name=[
+        app_commands.Choice(name="Channel Notif Member Join/Leave", value="member_join_alert"),
+        app_commands.Choice(name="Channel Join/Leave Game", value="leave_join_channel")
+    ])
+    async def team_channel(self, context: commands.Context, settings_name: app_commands.Choice[str], channel: discord.TextChannel) -> None:
+        guild_id = context.guild.id
+        kolom_database = settings_name.value
+        nama_tampilan = settings_name.name
+        result = await self.bot.database.team_settings(guild_id, kolom_database, channel.id)
 
-            for member in team_member['result']:
-                guild_id = member['guild_id']
-                group_guild_id[guild_id].append(dict(member))
+        if result["success"]:
+            if guild_id not in self.settings_cache:
+                self.settings_cache[guild_id] = {}
 
-            self.member_cache = group_guild_id
-            self.bot.logger.info(f"Team member berhasil di load total {len(self.member_cache)} guild")
+            self.settings_cache[guild_id][kolom_database] = channel.id
+
+            await context.send(
+                embed=discord.Embed(
+                    title="Team Setup",
+                    description=f"Settings Berhasil di ubah\n"
+                                f"- Nama Settings: {nama_tampilan}\n"
+                                f"- Value: {kolom_database}",
+                )
+            )
         else:
-            self.member_cache = {}
-            self.bot.logger.info("Belum ada team member")
+            await context.send(
+                embed=discord.Embed(
+                    title="Team Setup",
+                    description=f"Gagal mengubah settings\n"
+                                f"Error: {result['error']}",
+                )
+            )
 
+    @commands.Cog.listener()
+    @commands.Cog.listener()
+    async def on_message(self, message: discord.Message) -> None:
+        if not message.guild:
+            return
+
+        guild_id = message.guild.id
+
+        # 1. CEK CACHE SETTINGS: Apakah server ini sudah melakukan /setup?
+        guild_settings = self.settings_cache.get(guild_id)
+        if not guild_settings:
+            return  # Abaikan jika server belum disetup
+
+        # 2. CEK CHANNEL LOG: Pastikan pesan ini benar-benar dikirim di channel 'leave_join_channel'
+        log_channel_id = guild_settings.get('leave_join_channel')
+        if not log_channel_id or message.channel.id != log_channel_id:
+            return  # Abaikan jika pesan dikirim di channel lain
+
+        # 3. Pastikan pesan punya embed dan memiliki author name (Mendeteksi pesan bot log MC)
+        if not (message.embeds and message.embeds[0].author and message.embeds[0].author.name):
+            return
+
+        author_name = message.embeds[0].author.name
+
+        # 4. Cek apakah ini event Join atau Leave
+        is_join = 'joined the server' in author_name
+        is_leave = 'left the server' in author_name
+
+        # Jika bukan pesan join/leave, langsung hentikan
+        if not (is_join or is_leave):
+            return
+
+        # 5. Ekstrak nama dan cari di cache member
+        player_name = author_name.split(" ")[0]
+        team_member = self.member_cache.get(guild_id, [])
+
+        if not team_member:
+            return
+
+        # Cari player di dalam cache
+        member_yang_login = None
+        for member in team_member:
+            if member.get('nama') == player_name:
+                member_yang_login = member
+                break
+
+        # 6. Jika member tim ditemukan, buat embed dan kirim ke channel Alert!
+        if member_yang_login:
+            nama = member_yang_login.get('nama')
+            rank = member_yang_login.get('rank')
+            jabatan = member_yang_login.get('jabatan')
+            user_id = member_yang_login.get('user_id')
+
+            # Sesuaikan Judul dan Warna Embed berdasarkan event-nya
+            if is_join:
+                embed_title = ':ringed_planet: | Judge Member Playing'
+                embed_color = discord.Color.green()
+            else:
+                embed_title = ':ringed_planet: | Judge Member Leaving MarlinMC'
+                embed_color = discord.Color.red()
+
+            embed = discord.Embed(
+                title=embed_title,
+                description=f"- Member: **{nama}**\n"
+                            f"- Rank: `{rank}`\n"
+                            f"- Jabatan: `{jabatan}`\n"
+                            f"- Mention: <@{user_id}>\n",
+                color=embed_color
+            )
+
+            # 7. Ambil channel 'member_join_alert' dan KIRIM pesannya
+            alert_channel_id = guild_settings.get('member_join_alert')
+
+            if alert_channel_id:
+                # Gunakan get_channel agar mengambil dari cache bot (lebih cepat)
+                alert_channel = self.bot.get_channel(alert_channel_id)
+                if alert_channel:
+                    await alert_channel.send(embed=embed)
+
+    async def cog_load(self) -> None:
+        # ==========================================
+        # 1. LOAD TEAM MEMBERS (1 Guild = Banyak Member)
+        # ==========================================
+        self.member_cache = defaultdict(list)  # Siapkan wadah kosong yang aman
+
+        db_members = await self.bot.database.get_team_member()
+
+        if db_members.get('success') and db_members.get('result'):
+            for row in db_members['result']:
+                guild_id = row['guild_id']
+                self.member_cache[guild_id].append(dict(row))
+
+            self.bot.logger.info(f"✅ Team member berhasil diload untuk {len(self.member_cache)} guild.")
+        else:
+            self.bot.logger.info("⚠️ Belum ada data team member di database.")
+
+        # ==========================================
+        # 2. LOAD TEAM SETTINGS (1 Guild = 1 Setting)
+        # ==========================================
+        self.settings_cache = {}  # Cukup pakai dictionary biasa
+
+        db_settings = await self.bot.database.get_team_settings()
+
+        if db_settings.get('success') and db_settings.get('result'):
+            for row in db_settings['result']:
+                guild_id = row['guild_id']
+                # Langsung jadikan dictionary sebagai value (TIDAK PERLU di-append ke list)
+                self.settings_cache[guild_id] = dict(row)
+
+            self.bot.logger.info(f"✅ Team settings berhasil diload untuk {len(self.settings_cache)} guild.")
+        else:
+            self.bot.logger.info("⚠️ Belum ada data team settings di database.")
 
 # And then we finally add the cog to the bot so that it can load, unload, reload and use it's content.
 async def setup(bot) -> None:

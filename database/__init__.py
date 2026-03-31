@@ -193,6 +193,38 @@ class DatabaseManager:
                 await cursor.execute("SELECT id, nama FROM team_member")
                 return await cursor.fetchall()
 
+    async def team_settings(self, guild_id: int, settings_name: str, settings_value: int) -> dict:
+        # 1. WAJIB WHITELIST: Daftarkan nama kolom yang valid di database kamu
+        # Ini mencegah ada orang iseng mengirim settings_name jahat seperti "guild_id) VALUES... DROP TABLE..."
+        allowed_columns = ["member_join_alert", "leave_join_channel"]
+
+        if settings_name not in allowed_columns:
+            return {"success": False, "error": "Nama pengaturan tidak valid!"}
+
+        # 2. Gunakan f-string HANYA untuk nama kolom ({settings_name}),
+        # dan tetap gunakan %s untuk value datanya.
+        query = f"""
+            INSERT INTO team_settings (guild_id, {settings_name}) 
+            VALUES (%s, %s) 
+            ON CONFLICT (guild_id) 
+            DO UPDATE SET {settings_name} = EXCLUDED.{settings_name}
+        """
+
+        try:
+            async with self.pool.acquire() as connection:
+                async with connection.cursor() as cursor:
+                    # Masukkan datanya berurutan: guild_id dulu, baru settings_value
+                    await cursor.execute(query, (guild_id, settings_value))
+                    return {"success": True}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    async def get_team_settings(self) -> dict:
+        async with self.pool.acquire() as connection:
+            async with connection.cursor(cursor_factory=DictCursor) as cursor:
+                await cursor.execute("SELECT * FROM team_settings")
+                result = await cursor.fetchall()
+                return {'success': True, 'result': result}
 
     async def add_welcome_role(self, guild_id: int, role: int) -> dict:
         try:
