@@ -105,9 +105,11 @@ class DatabaseManager:
         """
         try:
             async with self.pool.acquire() as connection:
-                async with connection.cursor() as cursor:
+                async with connection.cursor(cursor_factory=DictCursor) as cursor:
                     await cursor.execute(
-                        "INSERT INTO team_member(nama, rank, jabatan, user_id, guild_id) VALUES (%s, %s, %s, %s, %s)",
+                        "INSERT INTO team_member(nama, rank, jabatan, user_id, guild_id) "
+                        "VALUES (%s, %s, %s, %s, %s)"
+                        "RETURNING id",
                         (
                             nama,
                             rank,
@@ -116,7 +118,8 @@ class DatabaseManager:
                             guild_id
                         ),
                     )
-            return {"success": True}
+                    new_id = (await cursor.fetchone())['id']
+            return {"success": True, 'id': new_id}
         except Exception as e:
             return {"success": False, "error": str(e)}
 
@@ -177,7 +180,7 @@ class DatabaseManager:
             async with connection.cursor(cursor_factory=DictCursor) as cursor:
                 await cursor.execute("SELECT * FROM team_member")
                 result = await cursor.fetchall()
-                return {'success': True, 'members': result}
+                return {'success': True, 'result': result}
 
     async def get_all_member_id(self) -> list:
         """

@@ -13,9 +13,6 @@ import logging
 from discord import app_commands, Message
 from discord.ext import commands
 
-logger = logging.getLogger(__name__)
-
-# Here we name the cog and create a new class for the cog.
 async def rank_autocomplete(interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
     """
     Fungsi untuk autocomplete rank member
@@ -51,7 +48,6 @@ class TeamManagement(commands.Cog, name="teammanagement"):
 
     async def member_id_autocomplete(self, interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
         member_id_list = await self.bot.database.get_all_member_id()
-        logger.info(f"Member ID List: {member_id_list}")
         return [
             app_commands.Choice(name=member[1], value=member[0])
             for member in member_id_list if current.lower() in member[1].lower()
@@ -84,31 +80,43 @@ class TeamManagement(commands.Cog, name="teammanagement"):
         name="listmember",
         description="Melihat list member Judge",
     )
-    async def list_member(self, ctx: commands.Context) -> Message:
+    @app_commands.describe(
+        guild_id = "Guild id dari sebuah team"
+    )
+    async def list_member(self, ctx: commands.Context, guild_id: str = None) -> discord.Message:
         """
-        This is a testing command that does nothing.
-
-        :param ctx: Interaksi dari pengguna
+        Command untuk menampilkan daftar member tim berdasarkan jabatan.
         """
         try:
-            list_member = self.member_cache.get(ctx.guild.id, [])
-            if not list_member:
-                return await ctx.send("Belum ada member, nih.", ephemeral=True)
+            target_guild_id = guild_id or (ctx.guild.id if ctx.guild else None)
+
+            if not target_guild_id:
+                return await ctx.send("Gunakan command ini di dalam server, atau masukkan ID server secara spesifik!",
+                                      ephemeral=True)
+
+            list_member = self.member_cache.get(int(target_guild_id), [])
 
             embed = discord.Embed(
-                title="✨┃Judge Team Roster",
+                title="✨ ┃ Judge Team Roster",
                 color=discord.Color.gold(),
                 timestamp=datetime.datetime.now(datetime.UTC),
-
             )
+
             categories = {"Leader": [], "Co-Leader": [], "Admin": [], "Member": []}
-            for nama, jabatan, rank, user_id in list_member:
+
+            for member in list_member:
+                nama = member.get("nama", "Unknown")
+                jabatan = member.get("jabatan", "Member")
+                rank = member.get("rank", "Unranked")
+                user_id = member.get("user_id", 0)
+
                 if jabatan in categories:
-                    categories[jabatan].append(f"• **{nama}** | *{rank}* | <@{user_id}>")
+                    categories[jabatan].append(f"- **{nama}** | **{rank}** | <@{user_id}>")
                 else:
-                    categories["Member"].append(f"• {nama} | <@{user_id}>")
+                    categories["Member"].append(f"- **{nama}** | **{rank}** | <@{user_id}>")
+
             for role, members in categories.items():
-                if members:
+                if members:  # Hanya buat field jika ada isinya
                     role_icons = {
                         "Leader": ":crown:",
                         "Co-Leader": ":shield:",
@@ -116,17 +124,21 @@ class TeamManagement(commands.Cog, name="teammanagement"):
                         "Member": ":bust_in_silhouette:"
                     }
                     icon = role_icons.get(role, ":bust_in_silhouette:")
+
                     embed.add_field(
                         name=f"{icon} ┃ `{role}`",
                         value="\n".join(members),
                         inline=False
                     )
-            embed.set_footer(text="Jumlah player {}".format(len(list_member)))
+
+            embed.set_footer(text=f"Total Player: {len(list_member)}")
+
             return await ctx.send(embed=embed)
-        except discord.Forbidden:
+
+        except Exception as e:
             return await ctx.send(
-                "Sepertinya saya tidak bisa mengirim pesan disini",
-                ephemeral=True,
+                f"Terjadi kesalahan saat memproses data: {str(e)}",
+                ephemeral=True
             )
 
     @commands.hybrid_group(
@@ -164,12 +176,28 @@ class TeamManagement(commands.Cog, name="teammanagement"):
         :return: None
         """
         try:
-            add_member_status = await self.bot.database.add_team_member(nama=nama,
-                                                                        rank=rank,
-                                                                        jabatan=jabatan,
-                                                                        guild_id=context.guild.id,
-                                                                        user_id=user.id)
+            guild_id = context.guild.id
+            add_member_status = await self.bot.database.add_team_member(
+                nama=nama,
+                rank=rank,
+                jabatan=jabatan,
+                guild_id=guild_id,
+                user_id=user.id
+            )
             if add_member_status["success"]:
+                new_member_id = add_member_status["id"]
+                new_member_data = {
+                    'id': new_member_id,
+                    'guild_id': guild_id,
+                    'user_id': user.id,
+                    'nama': nama,
+                    'rank': rank,
+                    'jabatan': jabatan
+                }
+                if guild_id not in self.member_cache:
+                    self.member_cache[guild_id] = []
+                self.member_cache[guild_id].append(new_member_data)
+
                 await context.send(
                     embed=discord.Embed(
                         title="Added Member Succes",
@@ -302,7 +330,7 @@ class TeamManagement(commands.Cog, name="teammanagement"):
                 group_guild_id[guild_id].append(dict(member))
 
             self.member_cache = group_guild_id
-            self.bot.logger.info("Team member berhasil di load")
+            self.bot.logger.info(f"Team member berhasil di load total {len(self.member_cache)} guild")
         else:
             self.member_cache = {}
             self.bot.logger.info("Belum ada team member")
