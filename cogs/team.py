@@ -5,6 +5,8 @@ Description:
 
 Version: 6.5.0
 """
+from collections import defaultdict
+
 import discord
 import datetime
 import logging
@@ -45,6 +47,7 @@ async def jabatan_autocomplete(interaction: discord.Interaction, current: str) -
 class TeamManagement(commands.Cog, name="teammanagement"):
     def __init__(self, bot) -> None:
         self.bot = bot
+        self.member_cache: dict = {}
 
     async def member_id_autocomplete(self, interaction: discord.Interaction, current: str) -> list[app_commands.Choice[str]]:
         member_id_list = await self.bot.database.get_all_member_id()
@@ -88,9 +91,10 @@ class TeamManagement(commands.Cog, name="teammanagement"):
         :param ctx: Interaksi dari pengguna
         """
         try:
-            list_data = await self.bot.database.get_team_member()
-            if not list_data:
+            list_member = self.member_cache.get(ctx.guild.id, [])
+            if not list_member:
                 return await ctx.send("Belum ada member, nih.", ephemeral=True)
+
             embed = discord.Embed(
                 title="✨┃Judge Team Roster",
                 color=discord.Color.gold(),
@@ -98,7 +102,7 @@ class TeamManagement(commands.Cog, name="teammanagement"):
 
             )
             categories = {"Leader": [], "Co-Leader": [], "Admin": [], "Member": []}
-            for nama, jabatan, rank, user_id in list_data:
+            for nama, jabatan, rank, user_id in list_member:
                 if jabatan in categories:
                     categories[jabatan].append(f"• *{nama}* | <@{user_id}>")
                 else:
@@ -117,7 +121,7 @@ class TeamManagement(commands.Cog, name="teammanagement"):
                         value="\n".join(members),
                         inline=False
                     )
-            embed.set_footer(text="Jumlah player {}".format(len(list_data)))
+            embed.set_footer(text="Jumlah player {}".format(len(list_member)))
             return await ctx.send(embed=embed)
         except discord.Forbidden:
             return await ctx.send(
@@ -287,6 +291,22 @@ class TeamManagement(commands.Cog, name="teammanagement"):
                 f"Error: {e}",
                 ephemeral=True
             )
+
+    async def cog_load(self) -> None:
+        team_member = await self.bot.database.get_team_member()
+        if team_member['success'] and team_member['result']:
+            group_guild_id = defaultdict(list)
+
+            for member in team_member['result']:
+                guild_id = member['guild_id']
+                group_guild_id[guild_id].append(dict(member))
+
+            self.member_cache = group_guild_id
+            self.bot.logger.info("Team member berhasil di load")
+        else:
+            self.member_cache = {}
+            self.bot.logger.info("Belum ada team member")
+
 
 # And then we finally add the cog to the bot so that it can load, unload, reload and use it's content.
 async def setup(bot) -> None:

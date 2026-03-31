@@ -167,16 +167,17 @@ class DatabaseManager:
         except Exception as e:
             return {"success": False, "error": str(e)}
 
-    async def get_team_member(self) -> list:
+    async def get_team_member(self) -> dict:
         """
         Fungsi ini akan mengembalikan list dari user yang sudah disimpan
 
         :return: List semua member
         """
         async with self.pool.acquire() as connection:
-            async with connection.cursor() as cursor:
-                await cursor.execute("SELECT nama, jabatan, rank, user_id FROM team_member")
-                return await cursor.fetchall()
+            async with connection.cursor(cursor_factory=DictCursor) as cursor:
+                await cursor.execute("SELECT * FROM team_member")
+                result = await cursor.fetchall()
+                return {'success': True, 'members': result}
 
     async def get_all_member_id(self) -> list:
         """
