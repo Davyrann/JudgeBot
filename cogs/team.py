@@ -104,7 +104,7 @@ class TeamManagement(commands.Cog, name="teammanagement"):
             categories = {"Leader": [], "Co-Leader": [], "Admin": [], "Member": []}
             for nama, jabatan, rank, user_id in list_member:
                 if jabatan in categories:
-                    categories[jabatan].append(f"• *{nama}* | <@{user_id}>")
+                    categories[jabatan].append(f"• **{nama}** | *{rank}* | <@{user_id}>")
                 else:
                     categories["Member"].append(f"• {nama} | <@{user_id}>")
             for role, members in categories.items():
