@@ -94,9 +94,10 @@ class DatabaseManager:
                 result = await cursor.fetchall()
                 return list(result)
 
-    async def add_team_member(self, nama: str, rank: str, jabatan: str) -> dict:
+    async def add_team_member(self, nama: str, rank: str, jabatan: str, user_id:int, guild_id: int) -> dict:
         """
         Fungsi ini akan menambahkan member ke dalam database
+        :param user_id: user_id dari member discord
         :param nama: Nama member
         :param rank: Rank member
         :param jabatan: Jabatan User di team
@@ -106,11 +107,13 @@ class DatabaseManager:
             async with self.pool.acquire() as connection:
                 async with connection.cursor() as cursor:
                     await cursor.execute(
-                        "INSERT INTO team_member(nama, rank, jabatan) VALUES (%s, %s, %s)",
+                        "INSERT INTO team_member(nama, rank, jabatan, user_id, guild_id) VALUES (%s, %s, %s, %s, %s)",
                         (
                             nama,
                             rank,
                             jabatan,
+                            user_id,
+                            guild_id
                         ),
                     )
             return {"success": True}
@@ -136,9 +139,10 @@ class DatabaseManager:
         except Exception as e:
             return {"success": False, "error": str(e)}
 
-    async def edit_team_member(self, member_id: int, nama: str, jabatan: str, rank: str) -> dict:
+    async def edit_team_member(self, member_id: int, nama: str, jabatan: str, user_id:int, rank: str, guild_id:int) -> dict:
         """
         Fungsi untuk mengedit member di database
+        :param user_id: user_id member discord
         :param member_id: Id member di database
         :param nama: Nama Member
         :param rank: Rank Member di Game server marlin
@@ -149,11 +153,13 @@ class DatabaseManager:
             async with self.pool.acquire() as connection:
                 async with connection.cursor() as cursor:
                     await cursor.execute(
-                        "UPDATE team_member SET nama=%s, rank=%s, jabatan=%s WHERE id=%s",
+                        "UPDATE team_member SET nama=%s, rank=%s, jabatan=%s, user_id=%s, guild_id=%s WHERE id=%s",
                         (
                             nama,
                             rank,
                             jabatan,
+                            user_id,
+                            guild_id,
                             member_id,
                         ),
                     )
@@ -169,7 +175,7 @@ class DatabaseManager:
         """
         async with self.pool.acquire() as connection:
             async with connection.cursor() as cursor:
-                await cursor.execute("SELECT nama, jabatan, rank FROM team_member")
+                await cursor.execute("SELECT nama, jabatan, rank, user_id FROM team_member")
                 return await cursor.fetchall()
 
     async def get_all_member_id(self) -> list:

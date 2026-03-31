@@ -57,9 +57,8 @@ class TeamManagement(commands.Cog, name="teammanagement"):
     # Here you can just add your own commands, you'll always need to provide "self" as first parameter.
     @commands.hybrid_group(
         name="team",
-        description="Perintah untuk manajemen team Judge",
+        description="Semua command tentang team",
     )
-    @commands.has_permissions(administrator=True)
     async def team(self, context: commands.Context) -> None:
         """
         Manage warnings of a user on a server.
@@ -99,11 +98,11 @@ class TeamManagement(commands.Cog, name="teammanagement"):
 
             )
             categories = {"Leader": [], "Co-Leader": [], "Admin": [], "Member": []}
-            for nama, jabatan, rank in list_data:
+            for nama, jabatan, rank, user_id in list_data:
                 if jabatan in categories:
-                    categories[jabatan].append(f"• {nama} | {rank}")
+                    categories[jabatan].append(f"• *{nama}* | <@{user_id}>")
                 else:
-                    categories["Member"].append(f"• {nama} | {rank}")
+                    categories["Member"].append(f"• {nama} | <@{user_id}>")
             for role, members in categories.items():
                 if members:
                     role_icons = {
@@ -114,7 +113,7 @@ class TeamManagement(commands.Cog, name="teammanagement"):
                     }
                     icon = role_icons.get(role, ":bust_in_silhouette:")
                     embed.add_field(
-                        name=f"{icon} ┃ {role}",
+                        name=f"{icon} ┃ `{role}`",
                         value="\n".join(members),
                         inline=False
                     )
@@ -126,7 +125,17 @@ class TeamManagement(commands.Cog, name="teammanagement"):
                 ephemeral=True,
             )
 
-    @team.command(
+    @commands.hybrid_group(
+        name="teamadmin",
+        description="Semua command admin tentang team"
+    )
+    @commands.has_permissions(administrator=True)
+    @app_commands.default_permissions(administrator=True)
+    async def teamadmin(self, ctx: commands.Context):
+        pass
+
+
+    @teamadmin.command(
         name="addmember",
         description="Menambah member team"
     )
@@ -134,16 +143,16 @@ class TeamManagement(commands.Cog, name="teammanagement"):
         nama="Nama Member",
         rank="Rank Member di Server",
         jabatan="Jabatan Member di team",
+        user="User discord pemilik akun"
     )
     @app_commands.autocomplete(
         rank=rank_autocomplete,
         jabatan=jabatan_autocomplete
     )
-    @app_commands.default_permissions(administrator=True)
-    @commands.has_permissions(administrator=True)
-    async def add_member(self, context: commands.Context, nama: str, rank: str, jabatan: str) -> None:
+    async def add_member(self, context: commands.Context, nama: str, rank: str, jabatan: str, user: discord.User) -> None:
         """
         Menambah member team
+        :param user: user discord yang mempunyai nickname tersebut
         :param jabatan: Jabatan memberdi team
         :param context: Interaksi dari member discord
         :param nama: Nama Member dalam str
@@ -151,12 +160,21 @@ class TeamManagement(commands.Cog, name="teammanagement"):
         :return: None
         """
         try:
-            add_member_status = await self.bot.database.add_team_member(nama, rank, jabatan)
+            add_member_status = await self.bot.database.add_team_member(nama=nama,
+                                                                        rank=rank,
+                                                                        jabatan=jabatan,
+                                                                        guild_id=context.guild.id,
+                                                                        user_id=user.id)
             if add_member_status["success"]:
                 await context.send(
                     embed=discord.Embed(
-                        title="Added Member",
-                        description=f"Member: {nama} Rank: {rank} serta Jabatan: {jabatan} berhasil di tambahkan ke database",
+                        title="Added Member Succes",
+                        description=f"- Member: {nama}\n"
+                                    f"- Rank: {rank}\n"
+                                    f"- Jabatan: {jabatan}\n"
+                                    f"- User Discord: {user.name}#{user.display_name}\n"
+                                    f"- Mention: <@{user.id}>\n"
+                                    f"Berhasil di tambahkan ke database",
                         timestamp=datetime.datetime.now(datetime.UTC),
                         color=discord.Color.green(),
                     )
@@ -164,11 +182,10 @@ class TeamManagement(commands.Cog, name="teammanagement"):
             else:
                 await context.send(
                     embed=discord.Embed(
-                        title="Added Member",
-                        description=f"Ada Kesalahan saat menambah member {nama} dengan {rank}"
-                                    f"Dengan error {add_member_status['error']}",
+                        title="Tambah Member Gagal",
+                        description=f"Dengan error {add_member_status['error']}",
                         timestamp=datetime.datetime.now(datetime.UTC),
-                        color=discord.Color.red(),
+                        color=discord.Color.dark_red(),
                     )
                 )
         except discord.Forbidden:
@@ -177,7 +194,61 @@ class TeamManagement(commands.Cog, name="teammanagement"):
                 ephemeral=True,
             )
 
-    @team.command(
+    @teamadmin.command(
+        name="editmember",
+        description="Mengedit member team"
+    )
+    @app_commands.describe(
+        member_id="Member ID  dari member yang ingin di edit",
+        nama="Nama Member",
+        rank="Rank Member di Server",
+        jabatan="Jabatan Member di team",
+        user="User discord pemilik akun"
+    )
+    @app_commands.autocomplete(
+        member_id=member_id_autocomplete,
+        rank=rank_autocomplete,
+        jabatan=jabatan_autocomplete,
+    )
+    async def edit_member(self, context: commands.Context, member_id: int, nama: str, rank: str, jabatan: str, user: discord.User) -> None:
+        try:
+            edit_member_status = await self.bot.database.edit_team_member(member_id=member_id,
+                                                                          nama=nama,
+                                                                          rank=rank,
+                                                                          jabatan=jabatan,
+                                                                          guild_id=context.guild.id,
+                                                                          user_id=user.id)
+            if edit_member_status["success"]:
+                await context.send(
+                    embed=discord.Embed(
+                        title="Edited Member",
+                        description=f"Member: {nama}\n"
+                                    f"- Rank: {rank}\n"
+                                    f"- Jabatan: {jabatan}\n"
+                                    f"- User Discord: {user.name}#{user.display_name}\n"
+                                    f"- Mention: <@{user.id}>\n"
+                                    f"Berhasil di edit di database",
+                        timestamp=datetime.datetime.now(datetime.UTC),
+                        color=discord.Color.green(),
+                    )
+                )
+            else:
+                await context.send(
+                    embed=discord.Embed(
+                        title="Edit Member Gagal",
+                        description=f"Dengan error: {edit_member_status['error']}",
+                        timestamp=datetime.datetime.now(datetime.UTC),
+                        color=discord.Color.dark_red(),
+                    )
+                )
+        except discord.Forbidden:
+            await context.send(
+                "Sepertinya saya tidak bisa mengirim pesan disini",
+                ephemeral=True,
+            )
+
+
+    @teamadmin.command(
         name="removemember",
         description="menghapus member team"
     )
@@ -187,8 +258,6 @@ class TeamManagement(commands.Cog, name="teammanagement"):
     @app_commands.autocomplete(
         nama=member_id_autocomplete,
     )
-    @app_commands.default_permissions(administrator=True)
-    @commands.has_permissions(administrator=True)
     async def remove_member(self, context: commands.Context, nama: int) -> None:
         try:
             remove_member_status = await self.bot.database.remove_team_member(nama)
