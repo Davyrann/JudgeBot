@@ -364,7 +364,6 @@ class TeamManagement(commands.Cog, name="teammanagement"):
             )
 
     @commands.Cog.listener()
-    @commands.Cog.listener()
     async def on_message(self, message: discord.Message) -> None:
         if not message.guild:
             return
