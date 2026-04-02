@@ -463,7 +463,7 @@ class TeamManagement(commands.Cog, name="teammanagement"):
 
         # 6. Jika member tim ditemukan, buat embed dan kirim ke channel Alert!
         if member_yang_login:
-            event_time = datetime.datetime.now(datetime.UTC)
+            event_time = datetime.datetime.now(datetime.UTC).timestamp()
             nama = member_yang_login.get('nama')
             rank = member_yang_login.get('rank')
             jabatan = member_yang_login.get('jabatan')
