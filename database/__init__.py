@@ -5,6 +5,7 @@ Description:
 
 Version: 6.5.0
 """
+import datetime
 
 import aiopg
 from psycopg2.extras import DictCursor
@@ -94,9 +95,10 @@ class DatabaseManager:
                 result = await cursor.fetchall()
                 return list(result)
 
-    async def add_team_member(self, nama: str, rank: str, jabatan: str, user_id:int, guild_id: int) -> dict:
+    async def add_team_member(self, nama: str, rank: str, jabatan: str, user_id:int, guild_id: int, time: int) -> dict:
         """
         Fungsi ini akan menambahkan member ke dalam database
+        :param guild_id:
         :param user_id: user_id dari member discord
         :param nama: Nama member
         :param rank: Rank member
@@ -107,15 +109,16 @@ class DatabaseManager:
             async with self.pool.acquire() as connection:
                 async with connection.cursor(cursor_factory=DictCursor) as cursor:
                     await cursor.execute(
-                        "INSERT INTO team_member(nama, rank, jabatan, user_id, guild_id) "
-                        "VALUES (%s, %s, %s, %s, %s)"
+                        "INSERT INTO team_member(nama, rank, jabatan, user_id, guild_id, last_login) "
+                        "VALUES (%s, %s, %s, %s, %s, %s)"
                         "RETURNING id",
                         (
                             nama,
                             rank,
                             jabatan,
                             user_id,
-                            guild_id
+                            guild_id,
+                            time
                         ),
                     )
                     new_id = (await cursor.fetchone())['id']
@@ -145,6 +148,7 @@ class DatabaseManager:
     async def edit_team_member(self, member_id: int, nama: str, jabatan: str, user_id:int, rank: str, guild_id:int) -> dict:
         """
         Fungsi untuk mengedit member di database
+        :param guild_id:
         :param user_id: user_id member discord
         :param member_id: Id member di database
         :param nama: Nama Member
@@ -154,9 +158,10 @@ class DatabaseManager:
         """
         try:
             async with self.pool.acquire() as connection:
-                async with connection.cursor() as cursor:
+                async with connection.cursor(cursor_factory=DictCursor) as cursor:
                     await cursor.execute(
-                        "UPDATE team_member SET nama=%s, rank=%s, jabatan=%s, user_id=%s, guild_id=%s WHERE id=%s",
+                        "UPDATE team_member SET nama=%s, rank=%s, jabatan=%s, user_id=%s, guild_id=%s WHERE id=%s"
+                        "RETURNING id",
                         (
                             nama,
                             rank,
@@ -166,7 +171,8 @@ class DatabaseManager:
                             member_id,
                         ),
                     )
-            return {"success": True}
+                    result = await cursor.fetchone()
+                    return {"success": True, 'result': result['id']}
         except Exception as e:
             return {"success": False, "error": str(e)}
 
@@ -192,6 +198,16 @@ class DatabaseManager:
             async with connection.cursor() as cursor:
                 await cursor.execute("SELECT id, nama FROM team_member")
                 return await cursor.fetchall()
+
+    async def last_online_update(self, timestamp: int, member_id: int) -> dict:
+        try:
+            async with self.pool.acquire() as connection:
+                async with connection.cursor() as cursor:
+                    await cursor.execute("UPDATE team_member SET last_online = to_timestamp(%s) WHERE id = %s",
+                                         (timestamp, member_id))
+                    return {"success": True}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
 
     async def team_settings(self, guild_id: int, settings_name: str, settings_value: int) -> dict:
         # 1. WAJIB WHITELIST: Daftarkan nama kolom yang valid di database kamu

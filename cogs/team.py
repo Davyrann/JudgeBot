@@ -110,9 +110,10 @@ class TeamManagement(commands.Cog, name="teammanagement"):
                 jabatan = member.get("jabatan", "Member")
                 rank = member.get("rank", "Unranked")
                 user_id = member.get("user_id", 0)
+                timestamp = member.get("last_login", 0)
 
                 if jabatan in categories:
-                    categories[jabatan].append(f"- **{nama}** | **{rank}** | <@{user_id}>")
+                    categories[jabatan].append(f"- **{nama}** | **{rank}** | <@{user_id}> | Online <t:{timestamp}:R>")
                 else:
                     categories["Member"].append(f"- **{nama}** | **{rank}** | <@{user_id}>")
 
@@ -177,13 +178,15 @@ class TeamManagement(commands.Cog, name="teammanagement"):
         :return: None
         """
         try:
+            added_time = datetime.datetime.now(datetime.UTC).timestamp()
             guild_id = context.guild.id
             add_member_status = await self.bot.database.add_team_member(
                 nama=nama,
                 rank=rank,
                 jabatan=jabatan,
                 guild_id=guild_id,
-                user_id=user.id
+                user_id=user.id,
+                time=added_time
             )
             if add_member_status["success"]:
                 new_member_id = add_member_status["id"]
@@ -193,7 +196,8 @@ class TeamManagement(commands.Cog, name="teammanagement"):
                     'user_id': user.id,
                     'nama': nama,
                     'rank': rank,
-                    'jabatan': jabatan
+                    'jabatan': jabatan,
+                    'last_login': added_time,
                 }
                 if guild_id not in self.member_cache:
                     self.member_cache[guild_id] = []
@@ -207,6 +211,7 @@ class TeamManagement(commands.Cog, name="teammanagement"):
                                     f"- Jabatan: {jabatan}\n"
                                     f"- User Discord: {user.name}#{user.display_name}\n"
                                     f"- Mention: <@{user.id}>\n"
+                                    f"- Added Time: <t:{int(added_time)}:F>\n"
                                     f"Berhasil di tambahkan ke database",
                         timestamp=datetime.datetime.now(datetime.UTC),
                         color=discord.Color.green(),
@@ -221,9 +226,9 @@ class TeamManagement(commands.Cog, name="teammanagement"):
                         color=discord.Color.dark_red(),
                     )
                 )
-        except discord.Forbidden:
+        except Exception as e:
             await context.send(
-                "Sepertinya saya tidak bisa mengirim pesan disini",
+                f"Terjadi error {e}",
                 ephemeral=True,
             )
 
@@ -243,24 +248,68 @@ class TeamManagement(commands.Cog, name="teammanagement"):
         rank=rank_autocomplete,
         jabatan=jabatan_autocomplete,
     )
-    async def edit_member(self, context: commands.Context, member_id: int, nama: str, rank: str, jabatan: str, user: discord.User) -> None:
+    async def edit_member(self, context: commands.Context, member_id: int, nama: str, rank: str, jabatan: str,
+                          user: discord.User) -> None:
         try:
-            edit_member_status = await self.bot.database.edit_team_member(member_id=member_id,
-                                                                          nama=nama,
-                                                                          rank=rank,
-                                                                          jabatan=jabatan,
-                                                                          guild_id=context.guild.id,
-                                                                          user_id=user.id)
+            guild_id = context.guild.id
+            user_id = user.id
+
+            # 1. Update ke Database
+            edit_member_status = await self.bot.database.edit_team_member(
+                member_id=member_id,
+                nama=nama,
+                rank=rank,
+                jabatan=jabatan,
+                guild_id=guild_id,
+                user_id=user_id
+            )
+
             if edit_member_status["success"]:
+                # 2. Siapkan data baru untuk di-cache
+                # Pastikan menggunakan ID dari database jika fungsi DB-mu me-return ID, atau pakai member_id dari argumen
+                target_id = edit_member_status.get("id", member_id)
+
+                new_member_data = {
+                    'id': target_id,
+                    'guild_id': guild_id,
+                    'user_id': user_id,
+                    'nama': nama,
+                    'rank': rank,
+                    'jabatan': jabatan
+                }
+
+                # ==========================================
+                # 3. UPDATE DATA DI DALAM CACHE MEMORI
+                # ==========================================
+                if guild_id in self.member_cache:
+                    # Cari index member tersebut di dalam list
+                    member_found = False
+                    for index, member_data in enumerate(self.member_cache[guild_id]):
+                        if member_data.get('id') == target_id:
+                            # Timpa/ganti dictionary lama dengan yang baru
+                            new_member_data['last_login'] = member_data['last_login']
+                            self.member_cache[guild_id][index] = new_member_data
+                            member_found = True
+                            break  # Hentikan pencarian jika sudah ketemu
+
+                    # (Opsional) Jika entah kenapa ID-nya tidak ketemu di cache tapi sukses di DB
+                    if not member_found:
+                        self.member_cache[guild_id].append(new_member_data)
+                else:
+                    # Jika server ini belum ada di cache sama sekali
+                    self.member_cache[guild_id] = [new_member_data]
+                # ==========================================
+
+                # 4. Kirim Pesan Sukses
                 await context.send(
                     embed=discord.Embed(
-                        title="Edited Member",
-                        description=f"Member: {nama}\n"
-                                    f"- Rank: {rank}\n"
-                                    f"- Jabatan: {jabatan}\n"
-                                    f"- User Discord: {user.name}#{user.display_name}\n"
-                                    f"- Mention: <@{user.id}>\n"
-                                    f"Berhasil di edit di database",
+                        title="✅ Edited Member",
+                        description=f"- **Member:** {nama}\n"
+                                    f"- **Rank:** {rank}\n"
+                                    f"- **Jabatan:** {jabatan}\n"
+                                    f"- **User Discord:** {user.name}\n"
+                                    f"- **Mention:** <@{user.id}>\n\n"
+                                    f"*(Berhasil diedit di database dan memori)*",
                         timestamp=datetime.datetime.now(datetime.UTC),
                         color=discord.Color.green(),
                     )
@@ -268,10 +317,10 @@ class TeamManagement(commands.Cog, name="teammanagement"):
             else:
                 await context.send(
                     embed=discord.Embed(
-                        title="Edit Member Gagal",
+                        title="❌ Edit Member Gagal",
                         description=f"Dengan error: {edit_member_status['error']}",
                         timestamp=datetime.datetime.now(datetime.UTC),
-                        color=discord.Color.dark_red(),
+                        color=discord.Color.red(),
                     )
                 )
         except discord.Forbidden:
@@ -279,7 +328,11 @@ class TeamManagement(commands.Cog, name="teammanagement"):
                 "Sepertinya saya tidak bisa mengirim pesan disini",
                 ephemeral=True,
             )
-
+        except Exception as e:
+            await context.send(
+                f"Terjadi kesalahan: {str(e)}",
+                ephemeral=True
+            )
 
     @teamadmin.command(
         name="removemember",
@@ -410,6 +463,7 @@ class TeamManagement(commands.Cog, name="teammanagement"):
 
         # 6. Jika member tim ditemukan, buat embed dan kirim ke channel Alert!
         if member_yang_login:
+            event_time = datetime.datetime.now(datetime.UTC)
             nama = member_yang_login.get('nama')
             rank = member_yang_login.get('rank')
             jabatan = member_yang_login.get('jabatan')
@@ -418,9 +472,12 @@ class TeamManagement(commands.Cog, name="teammanagement"):
             # Sesuaikan Judul dan Warna Embed berdasarkan event-nya
             if is_join:
                 embed_title = ':ringed_planet: | Judge Member Playing'
+                status = 'Online'
                 embed_color = discord.Color.green()
             else:
                 embed_title = ':ringed_planet: | Judge Member Leaving MarlinMC'
+                status = 'Offline'
+                await self.bot.database.last_online_update(timestamp=event_time,member_id=user_id)
                 embed_color = discord.Color.red()
 
             embed = discord.Embed(
@@ -428,7 +485,8 @@ class TeamManagement(commands.Cog, name="teammanagement"):
                 description=f"- Member: **{nama}**\n"
                             f"- Rank: `{rank}`\n"
                             f"- Jabatan: `{jabatan}`\n"
-                            f"- Mention: <@{user_id}>\n",
+                            f"- Mention: <@{user_id}>\n"
+                            f"- {status}: <t:{event_time}:R>",
                 color=embed_color
             )
 
@@ -442,9 +500,6 @@ class TeamManagement(commands.Cog, name="teammanagement"):
                     await alert_channel.send(embed=embed)
 
     async def cog_load(self) -> None:
-        # ==========================================
-        # 1. LOAD TEAM MEMBERS (1 Guild = Banyak Member)
-        # ==========================================
         self.member_cache = defaultdict(list)  # Siapkan wadah kosong yang aman
 
         db_members = await self.bot.database.get_team_member()
@@ -458,9 +513,6 @@ class TeamManagement(commands.Cog, name="teammanagement"):
         else:
             self.bot.logger.info("⚠️ Belum ada data team member di database.")
 
-        # ==========================================
-        # 2. LOAD TEAM SETTINGS (1 Guild = 1 Setting)
-        # ==========================================
         self.settings_cache = {}  # Cukup pakai dictionary biasa
 
         db_settings = await self.bot.database.get_team_settings()
@@ -468,7 +520,6 @@ class TeamManagement(commands.Cog, name="teammanagement"):
         if db_settings.get('success') and db_settings.get('result'):
             for row in db_settings['result']:
                 guild_id = row['guild_id']
-                # Langsung jadikan dictionary sebagai value (TIDAK PERLU di-append ke list)
                 self.settings_cache[guild_id] = dict(row)
 
             self.bot.logger.info(f"✅ Team settings berhasil diload untuk {len(self.settings_cache)} guild.")
