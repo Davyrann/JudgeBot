@@ -323,11 +323,6 @@ class TeamManagement(commands.Cog, name="teammanagement"):
                         color=discord.Color.red(),
                     )
                 )
-        except discord.Forbidden:
-            await context.send(
-                "Sepertinya saya tidak bisa mengirim pesan disini",
-                ephemeral=True,
-            )
         except Exception as e:
             await context.send(
                 f"Terjadi kesalahan: {str(e)}",
@@ -463,7 +458,7 @@ class TeamManagement(commands.Cog, name="teammanagement"):
 
         # 6. Jika member tim ditemukan, buat embed dan kirim ke channel Alert!
         if member_yang_login:
-            event_time = datetime.datetime.now(datetime.UTC).timestamp()
+            event_time = int(time.time())
             nama = member_yang_login.get('nama')
             rank = member_yang_login.get('rank')
             jabatan = member_yang_login.get('jabatan')
