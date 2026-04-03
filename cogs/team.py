@@ -9,7 +9,7 @@ from collections import defaultdict
 
 import discord
 import datetime
-import logging
+import time
 from discord import app_commands, Message
 from discord.ext import commands
 
@@ -178,7 +178,7 @@ class TeamManagement(commands.Cog, name="teammanagement"):
         :return: None
         """
         try:
-            added_time = datetime.datetime.now(datetime.UTC).timestamp()
+            added_time = int(time.time())
             guild_id = context.guild.id
             add_member_status = await self.bot.database.add_team_member(
                 nama=nama,
