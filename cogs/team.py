@@ -70,10 +70,14 @@ class TeamManagement(commands.Cog, name="teammanagement"):
             list[app_commands.Choice[str]]: Daftar pilihan member yang relevan dengan input user
         """
         member_id_list = []
-        guild_member = self.member_cache.get(interaction.guild_id, [])
+        guild_member = self.member_cache.get(interaction.guild.id, [])
         for member in guild_member:
             if current.lower() in str(member.get("nama", "")).lower():
-                member_id_list.append((member.get("id"), member.get("nama")))
+                member_id_list.append(
+                    app_commands.Choice(
+                        name=member.get("nama"),
+                        value=member.get("id"))
+                    )
         return member_id_list[:25]  # Batasi hasil autocomplete maksimal 25 pilihan
 
     @commands.hybrid_group(
@@ -377,16 +381,24 @@ class TeamManagement(commands.Cog, name="teammanagement"):
             remove_member_status = await self.bot.database.remove_team_member(member_id)
             guild_member = self.member_cache.get(context.guild.id, [])
             user = None
+
             for member in guild_member:
                 if member.get("id") == member_id:
                     user = member
                     break
 
+            nama_target = user.get("nama", f"Unknown (ID: {member_id})") if user else f"Unknown (ID: {member_id})"
+
             if remove_member_status["success"]:
+
+                if user in guild_member:
+                    guild_member.remove(user)
+                    self.member_cache[context.guild.id] = guild_member
+
                 await context.send(
                     embed=discord.Embed(
                         title="Removed Member",
-                        description=f"Member: {member.get('name')}\n"
+                        description=f"Member: {nama_target}\n"
                                     f"Telah berhasil **DIHAPUS** dari database",
                         timestamp=datetime.datetime.now(datetime.UTC),
                         color=discord.Color.green(),
@@ -397,7 +409,7 @@ class TeamManagement(commands.Cog, name="teammanagement"):
                 await context.send(
                     embed=discord.Embed(
                         title="Removed Member",
-                        description=f"Member: {member.get('name')}\n"
+                        description=f"Member: {nama_target}\n"
                                     f"gagal **DIHAPUS** dari database",
                         timestamp=datetime.datetime.now(datetime.UTC),
                         color=discord.Color.dark_red(),
