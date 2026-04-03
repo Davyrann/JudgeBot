@@ -508,7 +508,7 @@ class TeamManagement(commands.Cog, name="teammanagement"):
             nama = member_yang_login.get('nama')
             rank = member_yang_login.get('rank')
             jabatan = member_yang_login.get('jabatan')
-            user = await self.bot.get_user(member_yang_login.get('user_id')) if member_yang_login.get('user_id') else None
+            user = self.bot.get_user(member_yang_login.get('user_id')) if member_yang_login.get('user_id') else None
 
             if is_join:
                 embed_title = ':ringed_planet: | Team Member Playing'
