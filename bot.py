@@ -7,7 +7,6 @@ Version: 6.5.0
 """
 
 import asyncio
-import json
 import logging
 import os
 import platform
