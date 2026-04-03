@@ -520,7 +520,8 @@ class TeamManagement(commands.Cog, name="teammanagement"):
                 status = 'Offline'
                 result = await self.bot.database.last_online_update(last_login=event_time,member_id=member_id)
                 if not result.get("success"):
-                    return
+                    self.bot.logger.error(f"Gagal update last online untuk member ID {member_id}: {result.get('error')}")
+                member_yang_login['last_login'] = event_time
                 embed_color = discord.Color.red()
 
             embed = discord.Embed(

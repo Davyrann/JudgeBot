@@ -201,7 +201,7 @@ class DatabaseManager:
         try:
             async with self.pool.acquire() as connection:
                 async with connection.cursor() as cursor:
-                    await cursor.execute("UPDATE team_member SET last_online = %s WHERE id = %s",
+                    await cursor.execute("UPDATE team_member SET last_login = %s WHERE id = %s",
                                          (last_login, member_id))
                     return {"success": True}
         except Exception as e:
