@@ -197,12 +197,12 @@ class DatabaseManager:
                 await cursor.execute("SELECT id, nama FROM team_member")
                 return await cursor.fetchall()
 
-    async def last_online_update(self, timestamp: int, member_id: int) -> dict:
+    async def last_online_update(self, last_login: int, member_id: int) -> dict:
         try:
             async with self.pool.acquire() as connection:
                 async with connection.cursor() as cursor:
                     await cursor.execute("UPDATE team_member SET last_online = %s WHERE id = %s",
-                                         (timestamp, member_id))
+                                         (last_login, member_id))
                     return {"success": True}
         except Exception as e:
             return {"success": False, "error": str(e)}

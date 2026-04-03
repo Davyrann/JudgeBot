@@ -518,7 +518,9 @@ class TeamManagement(commands.Cog, name="teammanagement"):
             else:
                 embed_title = ':ringed_planet: | Team Member Leaving MarlinMC'
                 status = 'Offline'
-                await self.bot.database.last_online_update(timestamp=event_time,member_id=member_id)
+                result = await self.bot.database.last_online_update(last_login=event_time,member_id=member_id)
+                if not result.get("success"):
+                    return
                 embed_color = discord.Color.red()
 
             embed = discord.Embed(
