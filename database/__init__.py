@@ -5,8 +5,6 @@ Description:
 
 Version: 6.5.0
 """
-import datetime
-
 import aiopg
 from psycopg2.extras import DictCursor
 

@@ -508,6 +508,7 @@ class TeamManagement(commands.Cog, name="teammanagement"):
             nama = member_yang_login.get('nama')
             rank = member_yang_login.get('rank')
             jabatan = member_yang_login.get('jabatan')
+            member_id = member_yang_login.get('id')
             user = self.bot.get_user(member_yang_login.get('user_id')) if member_yang_login.get('user_id') else None
 
             if is_join:
@@ -517,7 +518,7 @@ class TeamManagement(commands.Cog, name="teammanagement"):
             else:
                 embed_title = ':ringed_planet: | Team Member Leaving MarlinMC'
                 status = 'Offline'
-                await self.bot.database.last_online_update(timestamp=event_time,member_id=user.id if user else None)
+                await self.bot.database.last_online_update(timestamp=event_time,member_id=member_id)
                 embed_color = discord.Color.red()
 
             embed = discord.Embed(
