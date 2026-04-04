@@ -158,7 +158,7 @@ class DatabaseManager:
             async with self.pool.acquire() as connection:
                 async with connection.cursor(cursor_factory=DictCursor) as cursor:
                     await cursor.execute(
-                        "UPDATE team_member SET nama=%s, rank=%s, jabatan=%s, user_id=%s, guild_id=%s WHERE id=%s"
+                        "UPDATE team_member SET nama=%s, rank=%s, jabatan=%s, user_id=%s, guild_id=%s WHERE id=%s "
                         "RETURNING id",
                         (
                             nama,
