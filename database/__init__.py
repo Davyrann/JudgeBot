@@ -5,8 +5,12 @@ Description:
 
 Version: 6.5.0
 """
+import json
+
 import aiopg
 from psycopg2.extras import DictCursor
+from typing import cast
+from . import models
 
 
 class DatabaseManager:
@@ -577,3 +581,87 @@ class DatabaseManager:
                         return {"success": False, "result": None}
         except Exception as e:
             return {"success": False, "error": str(e)}
+        
+    async def add_auction_alert(self, guild_id: int, user_id: int, item_name: str, is_permanent: bool = False) -> models.AuctionSingleResponse:
+        try:
+            async with self.pool.acquire() as connection:
+                async with connection.cursor(cursor_factory=DictCursor) as cursor:
+                    await cursor.execute("SELECT count(*) FROM auction WHERE guild_id=%s AND user_id=%s AND is_active=true", (guild_id, user_id))
+                    result = await cursor.fetchone()
+                    if result and result[0] >= 5:
+                        return {"success": False, "data": None, "error": "Kamu sudah memiliki 5 alert aktif, mohon hapus beberapa alert sebelum menambahkan yang baru."}
+                                        
+                    await cursor.execute(
+                        "INSERT INTO auction(guild_id, user_id, item_name, is_permanent) "
+                        "VALUES (%s, %s, %s, %s) "
+                        "RETURNING *",
+                        (guild_id, user_id, item_name, is_permanent)
+                    )
+                    result = await cursor.fetchone()
+                    row_data = cast(models.TabelAuction, dict(result))
+                    return {"success": True, "data": row_data, "error": None}
+        except Exception as e:
+            return {"success": False, "data": None, "error": str(e)}
+
+    async def get_list_auction_item(self) -> models.AuctionListResponse:
+        try:
+            async with self.pool.acquire() as connection:
+                async with connection.cursor(cursor_factory=DictCursor) as cursor:
+                    await cursor.execute("SELECT guild_id, item_name FROM auction WHERE is_active=true")
+                    result = await cursor.fetchall()
+                    row_data = [cast(models.ItemListAuction, dict(row)) for row in result]
+                    return {"success": True, "data": row_data, "error": None}
+        except Exception as e:
+            return {"success": False, "data": None, "error": str(e)}
+    
+    async def get_user_auction_alert(self, guild_id: int, user_id: int) -> models.AuctionListResponse:
+        try:
+            async with self.pool.acquire() as connection:
+                async with connection.cursor(cursor_factory=DictCursor) as cursor:
+                    await cursor.execute("SELECT * FROM auction WHERE is_active=true AND guild_id=%s AND user_id=%s", (guild_id, user_id))
+                    result = await cursor.fetchall()
+                    row_data = [cast(models.TabelAuction, dict(row)) for row in result]
+                    return {"success": True, "data": row_data, "error": None}
+        except Exception as e:
+            return {"success": False, "data": None, "error": str(e)}
+    
+    async def remove_auction_alert(self, alert_id: int, guild_id: int, user_id: int) -> models.AuctionSingleResponse:
+        try:
+            async with self.pool.acquire() as connection:
+                async with connection.cursor(cursor_factory=DictCursor) as cursor:
+                    await cursor.execute("DELETE FROM auction WHERE id=%s AND guild_id=%s AND user_id=%s RETURNING *", (alert_id, guild_id, user_id))
+                    result = await cursor.fetchone()
+                    if not result:
+                        return {"success": False, "data": None, "error": "Alert tidak ditemukan atau kamu tidak memiliki izin untuk menghapus alert ini."}
+                    row_data = cast(models.TabelAuction, dict(result))
+                    return {"success": True, "data": row_data, "error": None}
+        except Exception as e:
+            return {"success": False, "data": None, "error": str(e)}
+    
+    async def get_all_user_item(self, guild_id: int, item_name: str) -> models.ItemUserResponse:
+        try:
+            async with self.pool.acquire() as connection:
+                async with connection.cursor(cursor_factory=DictCursor) as cursor:
+                    await cursor.execute("SELECT id, user_id FROM auction WHERE is_active=true AND guild_id=%s AND item_name=%s", (guild_id, item_name))
+                    result = await cursor.fetchall()
+                    user_ids = [cast(models.ItemUser, {"user_id": int(row['user_id']), "auction_id": row['id']}) for row in result]
+                    return {"success": True, "data": user_ids, "error": None}
+        
+        except Exception as e:
+            return {"success": False, "data": None, "error": str(e)}
+
+    async def deactivate_auction_alert(self, item_name: str, guild_id: int) -> models.AuctionSingleResponse:
+        try:
+            async with self.pool.acquire() as connection:
+                async with connection.cursor(cursor_factory=DictCursor) as cursor:
+                    item_name = f"%{item_name}%"
+                    await cursor.execute("""UPDATE auction SET is_active=false 
+                                         WHERE item_name ILIKE %s 
+                                         AND guild_id=%s 
+                                         AND is_active=true
+                                         AND is_permanent=false""", (item_name, guild_id))
+                    
+                    return {"success": True, "data": None, "error": None}
+        except Exception as e:
+            return {"success": False, "data": None, "error": str(e)}
+
