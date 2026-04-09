@@ -19,7 +19,7 @@ from discord.ext import commands, tasks
 from discord.ext.commands import Context
 from dotenv import load_dotenv
 
-from database import DatabaseManager
+from database import DatabaseManager, models
 
 load_dotenv()
 
@@ -139,10 +139,19 @@ class DiscordBot(commands.Bot):
         - self.bot.logger # In cogs
         """
         self.logger = logger
-        self.database = None
+        self._database = None
         self.db_pool = None
         self.bot_prefix = os.getenv("PREFIX")
         self.invite_link = os.getenv("INVITE_LINK")
+        self.guild_settings_cache: dict[int, models.GuildSettings] = {} # Cache untuk menyimpan pengaturan guild agar tidak perlu mengambil dari database setiap kali digunakan
+
+    @property
+    def database(self) -> DatabaseManager:
+        if self._database is None:
+            # Jika secara ajaib dipanggil sebelum setup_hook, program akan protes
+            raise RuntimeError("Database belum diinisialisasi!")
+        return self._database
+
 
     async def init_db(self) -> None:
         database_url = os.getenv("DATABASE_URL")
@@ -150,7 +159,7 @@ class DiscordBot(commands.Bot):
             raise RuntimeError("DATABASE_URL is missing. Please set PostgreSQL DSN in your environment.")
 
         self.db_pool = await aiopg.create_pool(database_url)
-
+        
         with open(
             f"{os.path.realpath(os.path.dirname(__file__))}/database/schema.sql",
             encoding="utf-8",
@@ -188,9 +197,7 @@ class DiscordBot(commands.Bot):
             activity=discord.Activity(
                 type=discord.ActivityType.playing,
                 name=random.choice(statuses),
-
-            )
-
+            ),
         )
 
     @status_task.before_loop
@@ -212,7 +219,15 @@ class DiscordBot(commands.Bot):
         )
         self.logger.info("-------------------")
         await self.init_db()
-        self.database = DatabaseManager(pool=self.db_pool)
+        self._database = DatabaseManager(pool=self.db_pool)
+        settings = await self.database.load_settings()
+        
+        if settings["success"]:
+            self.guild_settings_cache = settings["data"] or {}
+            self.logger.info(f"Loaded guild settings: {len(self.guild_settings_cache)} guilds")
+        else:
+            self.logger.error(f"Failed to load guild settings: {settings['error']}")
+        
         await self.load_cogs()
         self.status_task.start()
 

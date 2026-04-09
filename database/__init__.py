@@ -665,3 +665,39 @@ class DatabaseManager:
         except Exception as e:
             return {"success": False, "data": None, "error": str(e)}
 
+    async def set_settings(self, guild_id: int, kategori: str, settings_value: dict) -> models.SetSettingsResponse:
+        # Gunakan operator || untuk menggabungkan JSON lama dengan yang baru
+        # Ini mencegah data lain di dalam kategori tersebut terhapus
+        query = """
+            INSERT INTO guild_settings (guild_id, kategori, settings) 
+            VALUES (%s, %s, %s) 
+            ON CONFLICT (guild_id, kategori) 
+            DO UPDATE SET settings = guild_settings.settings || EXCLUDED.settings
+        """
+        try:
+            json_value = json.dumps(settings_value)
+            async with self.pool.acquire() as connection:
+                async with connection.cursor() as cursor:
+                    await cursor.execute(query, (guild_id, kategori, json_value))
+                    return {"success": True, "error": None}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+    
+    async def load_settings(self) -> models.LoadSettingsResponse:
+        query = "SELECT * FROM guild_settings"
+        try:
+            async with self.pool.acquire() as connection:
+                async with connection.cursor(cursor_factory=DictCursor) as cursor:
+                    await cursor.execute(query)
+                    result = await cursor.fetchall()
+                    settings_cache = {}
+                    for row in result:
+                        g_id = row['guild_id']
+                        kategori = row['kategori']
+                        data_json = row['settings']
+                        if g_id not in settings_cache:
+                            settings_cache[g_id] = cast(models.GuildSettings, {})
+                        settings_cache[g_id][kategori] = data_json
+                    return {"success": True, "data": settings_cache, "error": None}
+        except Exception as e:
+            return {"success": False, "data": None, "error": str(e)}
