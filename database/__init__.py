@@ -10,12 +10,15 @@ import json
 import aiopg
 from psycopg2.extras import DictCursor
 from typing import cast
+
+from database.team_db import TeamManager
 from . import models
 
 
 class DatabaseManager:
     def __init__(self, *, pool: aiopg.Pool) -> None:
         self.pool = pool
+        self.team = TeamManager(pool)
 
     async def add_warn(
         self, user_id: int, server_id: int, moderator_id: int, reason: str
@@ -178,17 +181,32 @@ class DatabaseManager:
         except Exception as e:
             return {"success": False, "error": str(e)}
 
-    async def get_team_member(self) -> dict:
+    async def get_team_member(self) -> models.TeamResponse:
         """
         Fungsi ini akan mengembalikan list dari user yang sudah disimpan
 
         :return: List semua member
         """
-        async with self.pool.acquire() as connection:
-            async with connection.cursor(cursor_factory=DictCursor) as cursor:
-                await cursor.execute("SELECT * FROM team_member")
-                result = await cursor.fetchall()
-                return {'success': True, 'result': result}
+        try:
+            async with self.pool.acquire() as connection:
+                async with connection.cursor(cursor_factory=DictCursor) as cursor:
+                    await cursor.execute("SELECT * FROM team")
+                    team_result = await cursor.fetchall()
+
+                    await cursor.execute("SELECT * FROM team_member")
+                    member_result = await cursor.fetchall()
+                    
+                    team = {int(row['team_id']): cast(models.Team, row) for row in team_result}
+                    member = {str(row['nama']): cast(models.TeamMember, row) for row in member_result}
+                    
+                    
+                    if not team and not member:
+                        return models.TeamResponse(success=True, team_data=None, team_member_data=None, error=None)
+                    
+                    return models.TeamResponse(success=True, team_data=team, team_member_data=member, error=None)
+        
+        except Exception as e:
+            return models.TeamResponse(success=False, team_data=None, team_member_data=None, error=str(e))
 
     async def get_all_member_id(self) -> list:
         """

@@ -1,6 +1,38 @@
 
-from typing import NotRequired, TypedDict
+from typing import Generic, NotRequired, Optional, TypeVar, TypedDict
 from datetime import datetime
+
+T = TypeVar("T")
+
+class SimpleResponse(TypedDict):
+    success: bool
+    error: Optional[str]
+
+class ReturningResponse(TypedDict, Generic[T]):
+    success: bool
+    data: Optional[T]
+    error: Optional[str]
+
+class TeamMember(TypedDict):
+    id: int
+    nama: str
+    rank: str
+    jabatan: str
+    user_id: Optional[int]
+    last_login: datetime
+    team_id: int
+
+class Team(TypedDict):
+    team_id: int
+    name: str
+    created_at: datetime
+    created_by: int
+
+class TeamResponse(TypedDict):
+    success: bool
+    team_data: Optional[dict[int, Team]]
+    team_member_data: Optional[dict[str, TeamMember]]
+    error: Optional[str]
 
 class TabelAuction(TypedDict):
     id: int
@@ -45,7 +77,7 @@ class AuctionSettings(TypedDict):
 
 class TeamSettings(TypedDict):
     team_log_channel_id: int | None 
-    member_join_alert_id: int | None
+    player_log_channel_id: int | None
 
 class BountySettings(TypedDict):
     bounty_log_channel_id: int | None

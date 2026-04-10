@@ -5,13 +5,14 @@ Description:
 
 Version: 6.5.0
 """
-from collections import defaultdict
+import random
 import discord
 import datetime
 import time
-from discord import app_commands, Interaction
+from discord import User, app_commands, Interaction
 from discord.ext import commands
 from typing import TYPE_CHECKING
+from database import models
 
 if TYPE_CHECKING:
     from bot import DiscordBot
@@ -55,518 +56,421 @@ async def jabatan_autocomplete(interaction: Interaction, current: str) -> list[a
 class TeamManagement(commands.Cog, name="teammanagement"):
     def __init__(self, bot: "DiscordBot") -> None:
         self.bot = bot
-        self.member_cache: dict = {}
-        self.settings_cache: dict = {}
-
-    async def member_id_autocomplete(self, interaction: Interaction, current: str) -> list[app_commands.Choice[str]]:
-        """
-        Fungsi auto complete untuk member id
+        self.team_cache: dict[int, models.Team] = {}
+        self.member_cache: dict[str, models.TeamMember] = {}
+    
+    team_group = app_commands.Group(name="team",
+                                    description="Command semua hal tentang team")
+    
+    @team_group.command(name="list_member")
+    async def list_member_slash(self, interaction: Interaction, team_id: int) -> None:
+        """akan mengirim list member berdasarkan nama_team
 
         Args:
             interaction (Interaction): Interaction dari pengguna discord
-            current (str): Teks Parsial yang sedang di ketik oleh pengguna discord
+            team_id (str): ID tim yang ingin dilihat membernya
 
         Returns:
-            list[app_commands.Choice[str]]: Daftar pilihan member yang relevan dengan input user
+            _type_: _description_
         """
-        member_id_list = []
-        guild_member = self.member_cache.get(interaction.guild.id, [])
-        for member in guild_member:
-            if current.lower() in str(member.get("nama", "")).lower():
-                member_id_list.append(
-                    app_commands.Choice(
-                        name=member.get("nama"),
-                        value=member.get("id"))
-                    )
-        return member_id_list[:25]  # Batasi hasil autocomplete maksimal 25 pilihan
+        if not interaction.guild:
+            await interaction.response.send_message("Gunakan command ini di dalam server!", ephemeral=True)
+            return
+        
+        await interaction.response.defer(ephemeral=False)
+        time_start = int(time.time())
+        
+        list_member = [member for member in self.member_cache.values() if member.get("team_id") == int(team_id)]
+        team_data = self.team_cache[team_id]
+        
+        embed = discord.Embed(
+            title=f"✨ ┃ Team {team_data.get('name', 'Unknown')} Member List",
+            color=random.choice([discord.Color.gold(), discord.Color.blue(), discord.Color.green()]),
+            timestamp=datetime.datetime.now(datetime.UTC),
+        )
 
-    @commands.hybrid_group(
-        name="team",
-        description="Semua command tentang team",
-    )
-    async def team(self, context: commands.Context) -> None:
-        """
-        Group command untuk team
+        categories = {"Leader": [], "Co-Leader": [], "Admin": [], "Member": []}
+
+        for member in list_member:
+            nama = member.get("nama", "Unknown")
+            jabatan = member.get("jabatan", "Member")
+            rank = member.get("rank", "Unranked")
+            user_id = member.get("user_id", 0)
+            user = None
+            if user_id:
+                user = self.bot.get_user(int(user_id)) # Sangat cepat karena mengambil dari memori bot
+                if not user:
+                    try:
+                        # Hanya hit API jika user tidak ada di memori
+                        user = await self.bot.fetch_user(int(user_id))
+                    except discord.NotFound:
+                        user = None
+            timestamp = member.get("last_login", 0)
+
+            if jabatan in categories:
+                categories[jabatan].append(f"- **{nama}** | **{rank}** | {user.mention if user else 'Unknown User'} | Online <t:{int(timestamp.timestamp())}:R>")
+            else:
+                categories["Member"].append(f"- **{nama}** | **{rank}** | {user.mention if user else 'Unknown User'} | Online <t:{int(timestamp.timestamp())}:R>")
+
+        for role, members in categories.items():
+            if members:  # Hanya buat field jika ada isinya
+                role_icons = {
+                    "Leader": ":crown:",
+                    "Co-Leader": ":shield:",
+                    "Admin": ":star:",
+                    "Member": ":bust_in_silhouette:"
+                }
+                icon = role_icons.get(role, ":bust_in_silhouette:")
+
+                embed.add_field(
+                    name=f"{icon} ┃ `{role}`",
+                    value="\n".join(members),
+                    inline=False
+                )
+        time_end = int(time.time())
+        execution_duration = time_end - time_start
+        embed.set_footer(text=f"Total Team Members: {len(list_member)} | Execution Time: {execution_duration} seconds")
+
+        await interaction.followup.send(embed=embed)
+
+    @team_group.command(name="list")
+    async def list_team_slash(self, interaction: Interaction) -> None:
+        """akan mengirim list team yang ada di server
 
         Args:
-            context (commands.Context): Context pengguna discord
-        """
-        if context.invoked_subcommand is None:
-            embed = discord.Embed(
-                description="Tolong lebih spesifik dalam execute command\n"
-                            "List Command:\n"
-                            "- `/team listmember` untuk melihat list member Judge\n",
-                color=discord.Color.dark_red(),
-            )
-            await context.send(embed=embed)
-
-    @team.command(
-        name="listmember",
-        description="Melihat list member Judge",
-    )
-    @app_commands.describe(
-        guild_id = "Guild id dari sebuah team"
-    )
-    async def list_member(self, ctx: commands.Context, guild_id: str = None) -> discord.Message:
-        """
-        Command list_member untuk menampilkan seluruh member team
-
-        Args:
-            ctx (commands.Context): Context dari pengguna discord
-            guild_id (str, optional): Server id jika ingin melihat team server lain. Defaults to None.
+            interaction (Interaction): Interaction dari pengguna discord
 
         Returns:
-            discord.Message: Pesan embed list team
+            _type_: _description_
         """
-        await ctx.defer(ephemeral=False)
+        if not interaction.guild:
+            await interaction.response.send_message("Gunakan command ini di dalam server!", ephemeral=True)
+            return
+        
+        await interaction.response.defer(ephemeral=False)
+        
+        embed = discord.Embed(
+            title="✨ ┃ Team List",
+            color=random.choice([discord.Color.gold(), discord.Color.blue(), discord.Color.green()]),
+            timestamp=datetime.datetime.now(datetime.UTC),
+        )
+
+        for team in self.team_cache.values():
+            team_name = team.get("name", "Unknown")
+            team_id = team.get("team_id", "Unknown")
+            created_at = team.get("created_at", "Unknown")
+            user_id = team.get("created_by", "Unknown")
+            user = self.bot.get_user(user_id)
+            embed.description = "".join([embed.description or "", f"- **{team_name}** (ID: {team_id}) oleh {user.mention if user else 'Unknown User'} | Created At: <t:{int(created_at.timestamp())}:f>\n"])
+
+        await interaction.followup.send(embed=embed)
+
+    team_admin_group = app_commands.Group(name="admin",
+                                          parent=team_group,
+                                          description="Command admin untuk team",
+                                          default_permissions=discord.Permissions(administrator=True))
+    
+    @team_admin_group.command(name="add_team",
+                              description="Membuat team baru")
+    @app_commands.describe(name="Nama team yang ingin dibuat")
+    async def add_team(self, interaction: Interaction, name: str) -> None:
+        await interaction.response.defer()
+        created_by = interaction.user.id
+        try:
+            resp = await self.bot.database.team.add_team(name=name, created_by=created_by)
+            if resp["success"]:
+                team_data = resp["data"]
+                if team_data:
+                    self.team_cache[team_data['team_id']] = team_data
+                    await interaction.followup.send(f"Team '{name}' berhasil dibuat dengan ID: {team_data['team_id']}")
+                else:
+                    await interaction.followup.send("Team berhasil dibuat, tetapi data tim tidak ditemukan dalam respons.")
+            else:
+                await interaction.followup.send(f"Gagal membuat team: {resp['error']}")
+        except Exception as e:
+            await interaction.followup.send(f"Terjadi kesalahan saat membuat team: {str(e)}")
+
+    @team_admin_group.command(name="remove_team",
+                              description="Menghapus team yang sudah ada")
+    @app_commands.describe(team_id="ID team yang ingin dihapus")
+    async def remove_team(self, interaction: Interaction, team_id: int) -> None:
+        await interaction.response.defer()
+        try:
+            resp = await self.bot.database.team.remove_team(team_id=team_id)
+            if resp["success"] and resp["data"]:
+                data = resp["data"]
+                self.team_cache.pop(team_id, None)
+                embed = discord.Embed(title="Team Deleted",
+                                      description=f"- Team ID: {team_id}\n- Team Name: {data.get('name', 'Unknown')}\n- Created At: <t:{int(data.get('created_at', datetime.datetime.now()).timestamp())}:f>",
+                                      color=discord.Color.green(),
+                                      timestamp=datetime.datetime.now(datetime.UTC))
+                await interaction.followup.send(embed=embed)
+            else:
+                embed = discord.Embed(title="Failed to Delete Team", description=f"Gagal menghapus team dengan ID '{team_id}'. Error: {resp['error']}", color=discord.Color.red())
+                await interaction.followup.send(embed=embed)
+        except Exception as e:
+            await interaction.followup.send(f"Terjadi kesalahan saat menghapus team: {str(e)}")
+
+    @team_admin_group.command(name="edit_team",
+                              description="Mengedit nama team yang sudah ada")
+    @app_commands.describe(team_id="ID team yang ingin diedit", new_name="Nama baru untuk team")
+    async def edit_team(self, interaction: Interaction, team_id: int, new_name: str) -> None:
+        await interaction.response.defer()
+        try:
+            resp = await self.bot.database.team.edit_team(team_id=team_id, new_name=new_name)
+            if resp["success"] and resp["data"]:
+                data = resp["data"]
+                self.team_cache[team_id] = data
+                embed = discord.Embed(title="Team Updated",
+                                      description=f"- Team ID: {team_id}\n- New Name: {data.get('name', 'Unknown')}\n- Created At: <t:{int(data.get('created_at', datetime.datetime.now()).timestamp())}:f>",
+                                      color=discord.Color.green(),
+                                      timestamp=datetime.datetime.now(datetime.UTC))
+                await interaction.followup.send(embed=embed)
+            else:
+                embed = discord.Embed(title="Failed to Update Team", description=f"Gagal mengedit team dengan ID '{team_id}'. Error: {resp['error']}", color=discord.Color.red())
+                await interaction.followup.send(embed=embed)
+        except Exception as e:
+            await interaction.followup.send(f"Terjadi kesalahan saat mengedit team: {str(e)}")
+
+    @team_admin_group.command(name="add_member",
+                              description="Menambahkan member ke dalam team")
+    @app_commands.describe(nama="Nama member yang ingin ditambahkan",
+                           rank="Rank member di server game",
+                           jabatan="Jabatan member di team",
+                           user_discord="User discord pemilik akun (opsional)",
+                           team_id="ID team tempat member akan ditambahkan")
+    @app_commands.autocomplete(rank=rank_autocomplete,
+                               jabatan=jabatan_autocomplete)
+    async def add_member(self, inteaction: Interaction, nama: str, rank: str, jabatan: str, user_discord: User | None, team_id: int):
+        await inteaction.response.defer()
+        user_id = user_discord.id if user_discord else None
+        try:
+            resp = await self.bot.database.team.add_member(team_id=team_id, nama=nama, rank=rank, jabatan=jabatan, user_id=user_id)
+            if resp["success"] and resp["data"]:
+                member_data = resp["data"]
+                if team_id in self.team_cache:
+                    self.member_cache[member_data['nama']] = member_data
+                    embed = discord.Embed(title="Member Added",
+                                          description=f"- Nama: {nama}\n- Rank: {rank}\n- Jabatan: {jabatan}\n- User Discord: {user_discord.mention if user_discord else 'Unknown User'}\n- Team ID: {team_id}",
+                                          color=discord.Color.green(),
+                                          timestamp=datetime.datetime.now(datetime.UTC),)
+                    await inteaction.followup.send(embed=embed)
+                else:
+                    await inteaction.followup.send(f"Member berhasil ditambahkan, tetapi data tim dengan ID '{team_id}' tidak ditemukan dalam cache.")
+            else:
+                await inteaction.followup.send(f"Gagal menambahkan member: {resp['error']}")
+        except Exception as e:
+            await inteaction.followup.send(f"Terjadi kesalahan saat menambahkan member: {str(e)}")
+    
+    @team_admin_group.command(name="edit_member",
+                              description="Mengedit data member yang sudah ada")
+    @app_commands.describe(nama="Nama member yang ingin diedit",
+                           rank="Rank member di server game",
+                           jabatan="Jabatan member di team",
+                           user_discord="User discord pemilik akun (opsional)",
+                           team_id="ID team tempat member akan diedit",
+                           member_id="ID member yang ingin diedit")
+    @app_commands.autocomplete(rank=rank_autocomplete,
+                               jabatan=jabatan_autocomplete)
+    async def edit_member(self, interaction: Interaction, team_id: int, member_id: int, nama: str, rank: str, jabatan: str, user_discord: User | None):
+        await interaction.response.defer()
+        user_id = user_discord.id if user_discord else None
         
         try:
-            execution_time = int(time.time())
-            target_guild_id = guild_id or (ctx.guild.id if ctx.guild else None)
+            old_data = None
+            for m in self.member_cache.values():
+                if m['id'] == member_id:
+                    old_data = m
+                    break
 
-            if not target_guild_id:
-                return await ctx.send("Gunakan command ini di dalam server, atau masukkan ID server secara spesifik!",
-                                      ephemeral=True)
-            
-            list_member = self.member_cache.get(int(target_guild_id), [])
-            embed = discord.Embed(
-                title="✨ ┃ Team Member List",
-                color=discord.Color.gold(),
-                timestamp=datetime.datetime.now(datetime.UTC),
-            )
-
-            categories = {"Leader": [], "Co-Leader": [], "Admin": [], "Member": []}
-
-            for member in list_member:
-                nama = member.get("nama", "Unknown")
-                jabatan = member.get("jabatan", "Member")
-                rank = member.get("rank", "Unranked")
-                user_id = member.get("user_id", 0)
-                user = None
-                if user_id:
-                    user = self.bot.get_user(int(user_id)) # Sangat cepat karena mengambil dari memori bot
-                    if not user:
-                        try:
-                            # Hanya hit API jika user tidak ada di memori
-                            user = await self.bot.fetch_user(int(user_id))
-                        except discord.NotFound:
-                            user = None
-                timestamp = member.get("last_login", 0)
-
-                if jabatan in categories:
-                    categories[jabatan].append(f"- **{nama}** | **{rank}** | {user.mention if user else 'Unknown User'} | Online <t:{timestamp}:R>")
-                else:
-                    categories["Member"].append(f"- **{nama}** | **{rank}** | {user.mention if user else 'Unknown User'} | Online <t:{timestamp}:R>")
-
-            for role, members in categories.items():
-                if members:  # Hanya buat field jika ada isinya
-                    role_icons = {
-                        "Leader": ":crown:",
-                        "Co-Leader": ":shield:",
-                        "Admin": ":star:",
-                        "Member": ":bust_in_silhouette:"
-                    }
-                    icon = role_icons.get(role, ":bust_in_silhouette:")
-
-                    embed.add_field(
-                        name=f"{icon} ┃ `{role}`",
-                        value="\n".join(members),
-                        inline=False
-                    )
-            execution_duration = int(time.time()) - execution_time
-            embed.set_footer(text=f"Total Team Members: {len(list_member)} | Execution Time: {execution_duration} seconds")
-
-            return await ctx.send(embed=embed)
-
-        except Exception as e:
-            return await ctx.send(
-                f"Terjadi kesalahan saat memproses data: {str(e)}",
-                ephemeral=True
-            )
-
-    @commands.hybrid_group(
-        name="teamadmin",
-        description="Semua command admin tentang team"
-    )
-    @commands.has_permissions(administrator=True)
-    @app_commands.default_permissions(administrator=True)
-    async def teamadmin(self, ctx: commands.Context):
-        pass
-
-
-    @teamadmin.command(
-        name="addmember",
-        description="Menambah member team"
-    )
-    @app_commands.describe(
-        nama="Nama member yang ingin di tambahkan",
-        rank="Rank Member di Server game",
-        jabatan="Jabatan Member di team",
-        user="User discord pemilik akun"
-    )
-    @app_commands.autocomplete(
-        rank=rank_autocomplete,
-        jabatan=jabatan_autocomplete
-    )
-    async def add_member(self, context: commands.Context, nama: str, rank: str, jabatan: str, user: discord.User = None) -> None:
-        """Command addmember untuk menambahkan member ke dalam database
-
-        Args:
-            context (commands.Context): Context dari user discord
-            nama (str): Nama dari member yang ingin di tambahkan
-            rank (str): Rank dari member di server game
-            jabatan (str): Jabaran member di team
-            user (discord.User, optional): User jika user ada jika tidak None. Defaults to None.
-        """
-        try:
-            added_time = int(time.time())
-            guild_id = context.guild.id
-            user_id = user.id if user else None
-            add_member_status = await self.bot.database.add_team_member(
-                nama=nama,
-                rank=rank,
-                jabatan=jabatan,
-                guild_id=guild_id,
-                user_id=user_id,
-                time=added_time
-            )
-            if add_member_status["success"]:
-                new_member_id = add_member_status["id"]
-                new_member_data = {
-                    'id': new_member_id,
-                    'guild_id': guild_id,
-                    'user_id': user_id,
-                    'nama': nama,
-                    'rank': rank,
-                    'jabatan': jabatan,
-                    'last_login': added_time,
-                }
-                if guild_id not in self.member_cache:
-                    self.member_cache[guild_id] = []
-                self.member_cache[guild_id].append(new_member_data)
-
-                await context.send(
-                    embed=discord.Embed(
-                        title="Added Member Succes",
-                        description=f"- Member: {nama}\n"
-                                    f"- Rank: {rank}\n"
-                                    f"- Jabatan: {jabatan}\n"
-                                    f"- User Discord: {user.name}#{user.display_name if user else 'Unknown User'}\n"
-                                    f"- Mention: {user.mention if user else 'Unknown User'}\n"
-                                    f"- Added Time: <t:{added_time}:F>\n"
-                                    f"Berhasil di tambahkan ke database",
-                        timestamp=datetime.datetime.now(datetime.UTC),
-                        color=discord.Color.green(),
-                    )
-                )
-            else:
-                await context.send(
-                    embed=discord.Embed(
-                        title="Tambah Member Gagal",
-                        description=f"Dengan error {add_member_status['error']}",
-                        timestamp=datetime.datetime.now(datetime.UTC),
-                        color=discord.Color.dark_red(),
-                    )
-                )
-        except Exception as e:
-            await context.send(
-                f"Terjadi error {e}",
-                ephemeral=True,
-            )
-
-    @teamadmin.command(
-        name="editmember",
-        description="Mengedit member team"
-    )
-    @app_commands.describe(
-        member_id="Member ID  dari member yang ingin di edit",
-        nama="Nama Member",
-        rank="Rank Member di Server",
-        jabatan="Jabatan Member di team",
-        user="User discord pemilik akun"
-    )
-    @app_commands.autocomplete(
-        member_id=member_id_autocomplete,
-        rank=rank_autocomplete,
-        jabatan=jabatan_autocomplete,
-    )
-    async def edit_member(self, context: commands.Context, member_id: int, nama: str, rank: str, jabatan: str,
-                          user: discord.User = None) -> None:
-        try:
-            guild_id = context.guild.id
-            user_id = user.id if user else None
-
-            # 1. Update ke Database
-            edit_member_status = await self.bot.database.edit_team_member(
-                member_id=member_id,
-                nama=nama,
-                rank=rank,
-                jabatan=jabatan,
-                guild_id=guild_id,
+            # 2. Jalankan Update Database
+            resp = await self.bot.database.team.edit_member(
+                member_id=member_id, 
+                team_id=team_id, 
+                nama=nama, 
+                rank=rank, 
+                jabatan=jabatan, 
                 user_id=user_id
             )
 
-            if edit_member_status["success"]:
-                # 2. Siapkan data baru untuk di-cache
-                # Pastikan menggunakan ID dari database jika fungsi DB-mu me-return ID, atau pakai member_id dari argumen
-                target_id = edit_member_status.get("id", member_id)
+            if not resp.get("success"):
+                return await interaction.followup.send(f"❌ Gagal: {resp.get('error')}")
 
-                new_member_data = {
-                    'id': target_id,
-                    'guild_id': guild_id,
-                    'user_id': user_id,
-                    'nama': nama,
-                    'rank': rank,
-                    'jabatan': jabatan
-                }
-                
-                if guild_id in self.member_cache:
-                    member_found = False
-                    for index, member_data in enumerate(self.member_cache[guild_id]):
-                        if member_data.get('id') == target_id:
-                            new_member_data['last_login'] = member_data['last_login']
-                            self.member_cache[guild_id][index] = new_member_data
-                            member_found = True
-                            break
+            if old_data and old_data["nama"] in self.member_cache and resp["data"]:
+                old_name = old_data['nama']
+                self.member_cache.pop(old_name)
+                new_data = resp["data"]
+                self.member_cache[new_data['nama']] = new_data
 
-                    if not member_found:
-                        self.member_cache[guild_id].append(new_member_data)
-                else:
-                    self.member_cache[guild_id] = [new_member_data]
+            embed = discord.Embed(title=f"Member __{nama}__ Updated",
+                                  description=f"- Nama: {nama}\n- Rank: {rank}\n- Jabatan: {jabatan}\n- User Discord: {user_discord.mention if user_discord else 'Unknown User'}\n- Team ID: {team_id}",
+                                  color=discord.Color.green(),
+                                  timestamp=datetime.datetime.now(datetime.UTC))
+            await interaction.followup.send(embed=embed)
 
-                # 4. Kirim Pesan Sukses
-                await context.send(
-                    embed=discord.Embed(
-                        title="Edited Member",
-                        description=f"- Member: {nama}\n"
-                                    f"- Rank: {rank}\n"
-                                    f"- Jabatan: {jabatan}\n"
-                                    f"- User Discord: {user.name if user else 'Unknown User'}\n"
-                                    f"- Mention: {user.mention if user else 'Unknown User'}\n"
-                                    f"Berhasil diedit di database dan memori",
-                        timestamp=datetime.datetime.now(datetime.UTC),
-                        color=discord.Color.green(),
-                    )
-                )
-            
-            else:
-                await context.send(
-                    embed=discord.Embed(
-                        title="Edit Member Gagal",
-                        description=f"Dengan error: {edit_member_status['error']}",
-                        timestamp=datetime.datetime.now(datetime.UTC),
-                        color=discord.Color.red(),
-                    )
-                )
-        
         except Exception as e:
-            await context.send(
-                f"Terjadi kesalahan: {str(e)}",
-                ephemeral=True
-            )
+            self.bot.logger.error(f"Error edit_member: {e}")
+            await interaction.followup.send("Terjadi kesalahan sistem.")
 
-    @teamadmin.command(
-        name="removemember",
-        description="menghapus member team"
-    )
-    @app_commands.describe(
-        member_id="Nama Member",
-    )
-    @app_commands.autocomplete(
-        member_id=member_id_autocomplete,
-    )
-    async def remove_member(self, context: commands.Context, member_id: int) -> None:
+    @team_admin_group.command(name="remove_member",
+                                description="Menghapus member dari team")
+    @app_commands.describe(team_id="ID team tempat member berada",
+                           member_id="ID member yang ingin dihapus")
+    async def remove_member(self, interaction: Interaction, team_id: int, member_id: int) -> None:
+        await interaction.response.defer()
         try:
-            
-            remove_member_status = await self.bot.database.remove_team_member(member_id)
-            guild_member = self.member_cache.get(context.guild.id, [])
-            user = None
+            owner_team = self.team_cache.get(team_id)
+            if owner_team and interaction.user.id != owner_team.get("created_by", 0):
+                await interaction.followup.send(embed=discord.Embed(title="Permission Denied", description="Hanya creator team yang bisa menghapus member!", color=discord.Color.red()))
+                return
 
-            for member in guild_member:
-                if member.get("id") == member_id:
-                    user = member
-                    break
-
-            nama_target = user.get("nama", f"Unknown (ID: {member_id})") if user else f"Unknown (ID: {member_id})"
-
-            if remove_member_status["success"]:
-
-                if user in guild_member:
-                    guild_member.remove(user)
-                    self.member_cache[context.guild.id] = guild_member
-
-                await context.send(
-                    embed=discord.Embed(
-                        title="Removed Member",
-                        description=f"Member: {nama_target}\n"
-                                    f"Telah berhasil **DIHAPUS** dari database",
-                        timestamp=datetime.datetime.now(datetime.UTC),
-                        color=discord.Color.green(),
-                    )
-                )
-            
+            resp = await self.bot.database.team.remove_member(member_id=member_id)
+            if resp["success"] and resp["data"]:
+                member_data = resp["data"]
+                self.member_cache.pop(member_data['nama'], None)
+                
+                embed = discord.Embed(title="Member Deleted",
+                                      description=f"- Nama: {member_data['nama']}\n- Rank: {member_data['rank']}\n- Jabatan: {member_data['jabatan']}\n- User Discord: <@{member_data.get('user_id', 'Unknown')}>\n- Team ID: {member_data['team_id']}",
+                                      color=discord.Color.green())
+                await interaction.followup.send(embed=embed)
             else:
-                await context.send(
-                    embed=discord.Embed(
-                        title="Removed Member",
-                        description=f"Member: {nama_target}\n"
-                                    f"gagal **DIHAPUS** dari database",
-                        timestamp=datetime.datetime.now(datetime.UTC),
-                        color=discord.Color.dark_red(),
+                embed = discord.Embed(title="Failed to Delete Member", description=f"Gagal menghapus member dengan ID '{member_id}'. Error: {resp['error']}", color=discord.Color.red())
+                await interaction.followup.send(embed=embed)
+        except Exception as e:
+            self.bot.logger.error(f"Error remove_member: {e}")
+
+    @list_member_slash.autocomplete("team_id")
+    @remove_team.autocomplete("team_id")
+    @edit_team.autocomplete("team_id")
+    @add_member.autocomplete("team_id")
+    @edit_member.autocomplete("team_id")
+    @remove_member.autocomplete("team_id")
+    async def list_member_team_id_autocomplete(self, interaction: Interaction, current: str) -> list[app_commands.Choice[str]]:
+        """
+        Fungsi autocomplete untuk team id di command list_member
+
+        Args:
+            interaction (Interaction): Interaction dari pengguna discord
+            current (str): Teks parsial yang sedang diketik oleh pengguna discord
+
+        Returns:
+            list[app_commands.Choice[str]]: Daftar pilihan team id yang relevan dengan input user
+        """
+        team_id_list = []
+        for team_id, team_data in self.team_cache.items():
+            if current.lower() in team_data.get("name", "").lower():
+                team_id_list.append(
+                    app_commands.Choice(
+                        name=f"{team_data.get('name', 'Unknown')} (ID: {team_id})",
+                        value=str(team_id))
                     )
-                )
-        except discord.Forbidden as e:
-            await context.send(
-                f"Sepertinya saya kurang akses untuk mengirim pesan disini"
-                f"Error: {e}",
-                ephemeral=True
-            )
+        return team_id_list[:25]
 
-    @teamadmin.command(
-        name='settings',
-        description="Team settings"
-    )
-    @app_commands.describe(
-        settings_name="Nama setting yang ingin diubah",
-        channel="Nilai setting yang ingin diubah"
-    )
-    @app_commands.choices(
-        settings_name=[
-        app_commands.Choice(name="Channel Notif Member Join/Leave", value="member_join_alert"),
-        app_commands.Choice(name="Channel Join/Leave Game", value="leave_join_channel")
-    ])
-    async def team_channel(self, context: commands.Context, settings_name: app_commands.Choice[str], channel: discord.TextChannel) -> None:
+
+    @edit_member.autocomplete('member_id')
+    @remove_member.autocomplete('member_id')
+    async def member_autocomplete(self, interaction: discord.Interaction, current: str):
+        selected_team_id = interaction.namespace.team_id
         
-        guild_id = context.guild.id
-        kolom_database = settings_name.value
-        nama_tampilan = settings_name.name
-        result = await self.bot.database.team_settings(guild_id, kolom_database, channel.id)
+        if not selected_team_id:
+            return [app_commands.Choice(name="⚠️ Pilih Tim terlebih dahulu!", value=-1)]
+
+        team_member = [member for member in self.member_cache.values() if member.get("team_id") == int(selected_team_id)]
+        
+        choices = []
+        for member_name in team_member:
+            if current.lower() in member_name['nama'].lower():
+                choices.append(
+                    app_commands.Choice(name=member_name['nama'], value=member_name['id'])
+                )
+        
+        return choices[:25]
+
+    async def _member_login_handler(self, message: discord.Message, team_log_channel_id: int | None):
+        if not team_log_channel_id or not message.embeds:
+            return
+        
+        embed_data = message.embeds[0]
+        if not (embed_data.author and embed_data.author.name):
+            return
+        author_text = embed_data.author.name.lower()
+        
+        is_join = "joined" in author_text
+        is_leave = "left" in author_text
+        
+        if not is_join and not is_leave:
+            return
+        
+        player_name = embed_data.author.name.split(" ")[0]
+        member_data = self.member_cache.get(player_name)
+        
+        if member_data:
+            resp = await self.bot.database.team.member_login(member_id=member_data["id"])
+            
+            if resp["success"] and resp["data"]:
+                db_data = resp["data"]
+                member_data["last_login"] = db_data.get("last_login", member_data.get("last_login"))
+                self.member_cache[player_name] = member_data
+                team_data = self.team_cache.get(member_data["team_id"], {})
+                if is_join:
+                    embed_title = " | Member Joined"
+                    status_text = "Online"
+                    embed_color = discord.Color.green()
+                else:
+                    embed_title = " | Member Left"
+                    status_text = "Offline"
+                    embed_color = discord.Color.red()
+                
+                user_mention = f"<@{member_data['user_id']}>" if member_data.get('user_id') else "`Not Linked`"
+                ts_int = int(member_data['last_login'].timestamp())
+                
+                embed = discord.Embed(
+                    description=(
+                        f"- Member: **{member_data['nama']}**\n"
+                        f"- Rank: `{member_data['rank']}`\n"
+                        f"- Jabatan: `{member_data['jabatan']}`\n"
+                        f"- Discord: {user_mention}\n"
+                        f"- Team ID: `{member_data['team_id']}`\n"
+                        f"- Team Name: `{team_data.get('name', 'Unknown')}`\n"
+                        f"- Status: **{status_text}**\n"
+                        f"- Waktu: <t:{ts_int}:R>"
+                    ),
+                    
+                    color=embed_color,
+                    timestamp=datetime.datetime.now(datetime.timezone.utc)
+                )
+                print(embed_data.author.url)
+                embed.set_author(name=embed_title, icon_url=embed_data.author.icon_url) 
+                embed.set_footer(text=f"Member ID: {member_data['id']}")
+                
+                channel = self.bot.get_channel(team_log_channel_id)
+                if isinstance(channel, discord.TextChannel):
+                    await channel.send(embed=embed)
+                
     
-        if result["success"]:
-            if guild_id not in self.settings_cache:
-                self.settings_cache[guild_id] = {}
-
-            self.settings_cache[guild_id][kolom_database] = channel.id
-
-            await context.send(
-                embed=discord.Embed(
-                    title="Team Setup",
-                    description=f"Settings Berhasil di ubah\n"
-                                f"- Nama Settings: {nama_tampilan}\n"
-                                f"- Value: {kolom_database}",
-                )
-            )
-        else:
-            await context.send(
-                embed=discord.Embed(
-                    title="Team Setup",
-                    description=f"Gagal mengubah settings\n"
-                                f"Error: {result['error']}",
-                )
-            )
-
     @commands.Cog.listener()
-    async def on_message(self, message: discord.Message) -> None:
+    async def on_message(self, message: discord.Message):
         if not message.guild:
             return
-
-        guild_id = message.guild.id
-        guild_settings = self.settings_cache.get(guild_id)
-
-        if not guild_settings:
-            return
-
-        log_channel_id = guild_settings.get('leave_join_channel')
-        if not log_channel_id or message.channel.id != log_channel_id:
-            return
-
-        if not (message.embeds and message.embeds[0].author and message.embeds[0].author.name):
-            return
-
-        author_name = message.embeds[0].author.name
-
-        is_join = 'joined the server' in author_name
-        is_leave = 'left the server' in author_name
-
-        if not (is_join or is_leave):
-            return
-
-        player_name = author_name.split(" ")[0]
-        team_member = self.member_cache.get(guild_id, [])
-
-        if not team_member:
-            return
-
-        member_yang_login = None
-        for member in team_member:
-            if member.get('nama') == player_name:
-                member_yang_login = member
-                break
-
-        if member_yang_login:
-            event_time = int(time.time())
-            nama = member_yang_login.get('nama')
-            rank = member_yang_login.get('rank')
-            jabatan = member_yang_login.get('jabatan')
-            member_id = member_yang_login.get('id')
-            user = self.bot.get_user(member_yang_login.get('user_id')) if member_yang_login.get('user_id') else None
-
-            if is_join:
-                embed_title = ':ringed_planet: | Team Member Playing'
-                status = 'Online'
-                embed_color = discord.Color.green()
-            else:
-                embed_title = ':ringed_planet: | Team Member Leaving MarlinMC'
-                status = 'Offline'
-                result = await self.bot.database.last_online_update(last_login=event_time,member_id=member_id)
-                if not result.get("success"):
-                    self.bot.logger.error(f"Gagal update last online untuk member ID {member_id}: {result.get('error')}")
-                member_yang_login['last_login'] = event_time
-                embed_color = discord.Color.red()
-
-            embed = discord.Embed(
-                title=embed_title,
-                description=f"- Member: **{nama}**\n"
-                            f"- Rank: `{rank}`\n"
-                            f"- Jabatan: `{jabatan}`\n"
-                            f"- Mention: {user.mention if user else "Unknown User Discord"}\n"
-                            f"- {status}: <t:{event_time}:R>",
-                color=embed_color
-            )
-
-            alert_channel_id = guild_settings.get('member_join_alert')
-
-            if alert_channel_id:
-                alert_channel = self.bot.get_channel(alert_channel_id)
-                if alert_channel:
-                    await alert_channel.send(embed=embed)
-
+        
+        settings = self.bot.guild_settings_cache.get(message.guild.id, {}).get("team", {})
+        player_log_channel_id = settings.get("player_log_channel_id")
+        team_log_channel_id = settings.get("team_log_channel_id")
+        if message.channel.id == player_log_channel_id:
+            await self._member_login_handler(message, team_log_channel_id=team_log_channel_id)
+        
+        
+        
     async def cog_load(self) -> None:
-        self.member_cache = defaultdict(list)  # Siapkan wadah kosong yang aman
-
-        db_members = await self.bot.database.get_team_member()
-
-        if db_members.get('success') and db_members.get('result'):
-            for row in db_members['result']:
-                guild_id = row['guild_id']
-                self.member_cache[guild_id].append(dict(row))
-
-            self.bot.logger.info(f"✅ Team member berhasil diload untuk {len(self.member_cache)} guild.")
-        else:
-            self.bot.logger.info("⚠️ Belum ada data team member di database.")
-
-        self.settings_cache = {}  # Cukup pakai dictionary biasa
-
-        db_settings = await self.bot.database.get_team_settings()
-
-        if db_settings.get('success') and db_settings.get('result'):
-            for row in db_settings['result']:
-                guild_id = row['guild_id']
-                self.settings_cache[guild_id] = dict(row)
-
-            self.bot.logger.info(f"✅ Team settings berhasil diload untuk {len(self.settings_cache)} guild.")
-        else:
-            self.bot.logger.info("⚠️ Belum ada data team settings di database.")
-
+        resp = await self.bot.database.get_team_member()
+        if not resp["success"]:
+            self.bot.logger.warning("⚠️ Gagal memuat data team member dari database.\nError: %s", resp["error"])
+            return
+        
+        self.member_cache = resp["team_member_data"] or {}
+        self.team_cache = resp["team_data"] or {}
+        self.bot.logger.info("✅ Berhasil memuat data team member dari database. Total members: %d", len(self.member_cache))
+        self.bot.logger.info("✅ Berhasil memuat data team dari database. Total teams: %d", len(self.team_cache))
+        
 async def setup(bot) -> None:
     await bot.add_cog(TeamManagement(bot))
