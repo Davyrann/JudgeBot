@@ -46,9 +46,9 @@ class Settings(commands.Cog, name="Settings"):
     @app_commands.autocomplete(setting=auction_settings_autocomplete)
     async def set_auction_channel(self, interaction: Interaction, setting: str, channel: TextChannel):
         if not interaction.guild:
-            await interaction.response.send_message("Perintah ini hanya dapat digunakan dalam server.", ephemeral=True)
+            await interaction.response.send_message("Perintah ini hanya dapat digunakan dalam server.", )
             return
-        await interaction.response.defer(ephemeral=True)
+        await interaction.response.defer()
         
         guild_id = interaction.guild.id
         setting_key = setting  # Gunakan nilai yang dipilih langsung sebagai key
@@ -57,7 +57,7 @@ class Settings(commands.Cog, name="Settings"):
         
         response = await self.bot.database.set_settings(guild_id, "auction", payload)
         if not response["success"]:
-                await interaction.followup.send(f"Gagal menyimpan pengaturan: {response['error']}", ephemeral=True)
+                await interaction.followup.send(f"Gagal menyimpan pengaturan: {response['error']}", )
                 return
         
         if guild_id not in self.bot.guild_settings_cache:
@@ -93,13 +93,14 @@ class Settings(commands.Cog, name="Settings"):
     
     @team_group.command(name="channel",
                         description="Atur saluran untuk pengaturan tim")
-    @app_commands.describe(setting="Pilih pengaturan channel yang ingin diatur")
+    @app_commands.describe(setting="Pilih pengaturan channel yang ingin diatur",
+                           channel="Pilih saluran untuk pengaturan yang dipilih")
     @app_commands.autocomplete(setting=team_settings_autocomplete)
     async def set_team_channel(self, interaction: Interaction, setting: str, channel: TextChannel):
         if not interaction.guild:
-            await interaction.response.send_message("Perintah ini hanya dapat digunakan dalam server.", ephemeral=True)
+            await interaction.response.send_message("Perintah ini hanya dapat digunakan dalam server.", )
             return
-        await interaction.response.defer(ephemeral=True)
+        await interaction.response.defer()
         
         guild_id = interaction.guild.id
         setting_key = setting  # Gunakan nilai yang dipilih langsung sebagai key
@@ -108,7 +109,7 @@ class Settings(commands.Cog, name="Settings"):
         
         response = await self.bot.database.set_settings(guild_id, "team", payload)
         if not response["success"]:
-                await interaction.followup.send(f"Gagal menyimpan pengaturan: {response['error']}", ephemeral=True)
+                await interaction.followup.send(f"Gagal menyimpan pengaturan: {response['error']}", )
                 return
         
         if guild_id not in self.bot.guild_settings_cache:
@@ -119,6 +120,55 @@ class Settings(commands.Cog, name="Settings"):
         
         guild_cache = self.bot.guild_settings_cache.get(guild_id, cast(models.GuildSettings, {}))
         guild_cache.get("team", cast(models.TeamSettings, {}))[setting_key] = setting_value
+
+        setting_label = setting_key.replace("_id", "").replace("_", " ").title()
+        embed = Embed(title="Pengaturan telah Disimpan",
+                      description=f"{setting_label} telah diatur ke {channel.mention}.",
+                      color=discord.Color.green())
+
+        await interaction.followup.send(embed=embed)
+    
+    general_group = app_commands.Group(name="general",
+                                        parent=settings_group,
+                                        description="Perintah untuk mengelola pengaturan umum")
+    
+    async def general_settings_autocomplete(self, interaction: Interaction, current: str) -> list[app_commands.Choice[str]]:
+        settings = {"Player List Channel": "player_list_channel_id"}
+        return [
+            app_commands.Choice(name=label, value=tech_key) 
+            for label, tech_key in settings.items() 
+            if current.lower() in label.lower()
+        ]
+    
+    @general_group.command(name="channel",
+                           description="Atur saluran untuk pengaturan umum")
+    @app_commands.describe(channel="Pilih saluran untuk pengaturan umum",
+                           setting="Pilih pengaturan umum yang ingin diatur")
+    @app_commands.autocomplete(setting=general_settings_autocomplete)
+    async def set_general_channel(self, interaction: Interaction, setting: str, channel: TextChannel):
+        if not interaction.guild:
+            await interaction.response.send_message("Perintah ini hanya dapat digunakan dalam server.")
+            return
+        await interaction.response.defer()
+        
+        guild_id = interaction.guild.id
+        setting_key = setting  # Gunakan nilai yang dipilih langsung sebagai key
+        setting_value = channel.id
+        payload = {setting_key: setting_value}
+        
+        response = await self.bot.database.set_settings(guild_id, "general", payload)
+        if not response["success"]:
+                await interaction.followup.send(f"Gagal menyimpan pengaturan: {response['error']}")
+                return
+        
+        if guild_id not in self.bot.guild_settings_cache:
+            self.bot.guild_settings_cache[guild_id] = cast(models.GuildSettings, {})
+        
+        if "general" not in self.bot.guild_settings_cache[guild_id]:
+            self.bot.guild_settings_cache[guild_id]["general"] = cast(models.GeneralSettings, {})
+        
+        guild_cache = self.bot.guild_settings_cache.get(guild_id, cast(models.GuildSettings, {}))
+        guild_cache.get("general", cast(models.GeneralSettings, {}))[setting_key] = setting_value
 
         setting_label = setting_key.replace("_id", "").replace("_", " ").title()
         embed = Embed(title="Pengaturan telah Disimpan",
