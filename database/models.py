@@ -83,12 +83,20 @@ class BountySettings(TypedDict):
     bounty_log_channel_id: int | None
     alert_channel_id: int | None
 
+class GeneralSettings(TypedDict):
+    player_list_channel_id: int | None
+
 class GuildSettings(TypedDict):
     auction: NotRequired[AuctionSettings]
     team: NotRequired[TeamSettings]
     bounty: NotRequired[BountySettings]
+    general: NotRequired[GeneralSettings]
 
 class LoadSettingsResponse(TypedDict):
     success: bool
     data: dict[int, GuildSettings] | None
     error: str | None
+    
+class PlayerLogEntry(TypedDict):
+    nickname: str
+    online_at: datetime
