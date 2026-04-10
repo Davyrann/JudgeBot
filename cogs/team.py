@@ -439,7 +439,6 @@ class TeamManagement(commands.Cog, name="teammanagement"):
                     color=embed_color,
                     timestamp=datetime.datetime.now(datetime.timezone.utc)
                 )
-                print(embed_data.author.url)
                 embed.set_author(name=embed_title, icon_url=embed_data.author.icon_url) 
                 embed.set_footer(text=f"Member ID: {member_data['id']}")
                 
