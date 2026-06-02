@@ -1,4 +1,5 @@
 aiohttp
-aiosqlite
+aiopg
+psycopg2-binary
 discord.py==2.7.1
 python-dotenv
