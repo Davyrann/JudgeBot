@@ -93,6 +93,10 @@ class Template(commands.Cog, name="template"):
                             color=discord.Color.green(),
                             )
                         embed.add_field(
+                            name="Skin Url",
+                            value=f"`https://mineskin.org/skins/{skin_id}`",
+                        )
+                        embed.add_field(
                             name="Link command",
                             value=f"`/skin url \"https://mineskin.org/skins/{skin_id}\"`",
                         )
