@@ -6,24 +6,29 @@ Description:
 Version: 6.5.0
 """
 
-import json
+import asyncio
 import logging
 import os
 import platform
 import random
 import sys
 
-import aiosqlite
+import aiopg
 import discord
 from discord.ext import commands, tasks
 from discord.ext.commands import Context
 from dotenv import load_dotenv
 
-from database import DatabaseManager
+from database import DatabaseManager, models
 
 load_dotenv()
 
-"""	
+# aiopg relies on add_reader/remove_reader APIs that are unavailable in ProactorEventLoop.
+# On Windows, force SelectorEventLoopPolicy before the bot starts.
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
+"""
 Setup bot intents (events restrictions)
 For more information about intents, please go to the following websites:
 https://discordpy.readthedocs.io/en/latest/intents.html
@@ -134,20 +139,37 @@ class DiscordBot(commands.Bot):
         - self.bot.logger # In cogs
         """
         self.logger = logger
-        self.database = None
+        self._database = None
+        self.db_pool = None
         self.bot_prefix = os.getenv("PREFIX")
         self.invite_link = os.getenv("INVITE_LINK")
+        self.guild_settings_cache: dict[int, models.GuildSettings] = {} # Cache untuk menyimpan pengaturan guild agar tidak perlu mengambil dari database setiap kali digunakan
+
+    @property
+    def database(self) -> DatabaseManager:
+        if self._database is None:
+            # Jika secara ajaib dipanggil sebelum setup_hook, program akan protes
+            raise RuntimeError("Database belum diinisialisasi!")
+        return self._database
+
 
     async def init_db(self) -> None:
-        async with aiosqlite.connect(
-            f"{os.path.realpath(os.path.dirname(__file__))}/database/database.db"
-        ) as db:
-            with open(
-                f"{os.path.realpath(os.path.dirname(__file__))}/database/schema.sql",
-                encoding = "utf-8"
-            ) as file:
-                await db.executescript(file.read())
-            await db.commit()
+        database_url = os.getenv("DATABASE_URL")
+        if not database_url:
+            raise RuntimeError("DATABASE_URL is missing. Please set PostgreSQL DSN in your environment.")
+
+        self.db_pool = await aiopg.create_pool(database_url)
+        
+        with open(
+            f"{os.path.realpath(os.path.dirname(__file__))}/database/schema.sql",
+            encoding="utf-8",
+        ) as file:
+            schema_statements = [stmt.strip() for stmt in file.read().split(";") if stmt.strip()]
+
+        async with self.db_pool.acquire() as connection:
+            async with connection.cursor() as cursor:
+                for statement in schema_statements:
+                    await cursor.execute(statement)
 
     async def load_cogs(self) -> None:
         """
@@ -165,13 +187,18 @@ class DiscordBot(commands.Bot):
                         f"Failed to load extension {extension}\n{exception}"
                     )
 
-    @tasks.loop(minutes=1.0)
+    @tasks.loop(hours=1.0)
     async def status_task(self) -> None:
         """
         Setup the game status task of the bot.
         """
-        statuses = ["with you!", "with Krypton!", "with humans!"]
-        await self.change_presence(activity=discord.Game(random.choice(statuses)))
+        statuses = ["MarlinMC", "Judge Team", "Minecraft"]
+        await self.change_presence(
+            activity=discord.Activity(
+                type=discord.ActivityType.playing,
+                name=random.choice(statuses),
+            ),
+        )
 
     @status_task.before_loop
     async def before_status_task(self) -> None:
@@ -192,13 +219,23 @@ class DiscordBot(commands.Bot):
         )
         self.logger.info("-------------------")
         await self.init_db()
+        self._database = DatabaseManager(pool=self.db_pool)
+        settings = await self.database.load_settings()
+        
+        if settings["success"]:
+            self.guild_settings_cache = settings["data"] or {}
+            self.logger.info(f"Loaded guild settings: {len(self.guild_settings_cache)} guilds")
+        else:
+            self.logger.error(f"Failed to load guild settings: {settings['error']}")
+        
         await self.load_cogs()
         self.status_task.start()
-        self.database = DatabaseManager(
-            connection=await aiosqlite.connect(
-                f"{os.path.realpath(os.path.dirname(__file__))}/database/database.db"
-            )
-        )
+
+    async def close(self) -> None:
+        if self.db_pool is not None:
+            self.db_pool.close()
+            await self.db_pool.wait_closed()
+        await super().close()
 
     async def on_message(self, message: discord.Message) -> None:
         """

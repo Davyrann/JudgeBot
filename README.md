@@ -82,7 +82,7 @@ Alternatively you can do the following:
 
 ## How to set up
 
-To set up the token you will have to make use of the [`.env.example`](.env.example) file; you should rename it to `.env` and replace the `YOUR_BOT...` content with your actual values that match for your bot.
+To set up the bot you will have to make use of the [`.env.example`](.env.example) file; you should rename it to `.env` and replace the `YOUR_BOT...` content with your actual values. You also need to set `DATABASE_URL` to a PostgreSQL DSN.
 
 Alternatively you can simply create a system environment variable with the same names and their respective value.
 
