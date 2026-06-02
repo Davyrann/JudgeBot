@@ -149,3 +149,4 @@ discord.log
 .idea
 .vscode
 .github
+.python-version
