@@ -104,6 +104,7 @@ class Template(commands.Cog, name="template"):
                     description="Gagal membuat skin. Pastikan gambar yang diupload valid dan coba lagi. atau Terkena Rate Limit tunggu beberapa jam ya",
                     color=discord.Color.red(),
                 )
+                
                 await interaction.followup.send(embed=embed)
 
 # And then we finally add the cog to the bot so that it can load, unload, reload and use it's content.
