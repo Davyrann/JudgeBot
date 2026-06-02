@@ -94,7 +94,7 @@ class Template(commands.Cog, name="template"):
                             )
                         embed.add_field(
                             name="Link command",
-                            value=f"`/skin url \"https://mineskin.org/skins/{skin_id}\" {skin_size}`",
+                            value=f"`/skin url \"https://mineskin.org/skins/{skin_id}\"`",
                         )
                         await interaction.followup.send(embed=embed)
                         return
