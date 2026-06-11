@@ -1,0 +1,45 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model GuildSetting {
+  id                    String   @id @default(cuid())
+  guildID               String   @unique
+  
+  welcomeChannelId      String?
+  welcomeMessage        String?
+  isWelcomeActive       Boolean  @default(false)
+  welcomeEmbedImageUrl  String?
+
+  leaverChannelId       String?
+  leaverMessage         String?
+  isLeaverActive        Boolean  @default(false)
+  leaverEmbedImageUrl   String?
+
+  isAutoResponderActive Boolean  @default(false)
+  AutoResponder AutoResponder[]
+
+  @@map("guild_settings")
+}
+
+model AutoResponder {
+  id        String   @id @default(cuid())
+  guildID   String
+  trigger   String
+  response  String
+
+  GuildSetting GuildSetting @relation(fields: [guildID], references: [guildID])
+
+  @@map("auto_responder")
+}
+

@@ -1,0 +1,9 @@
+services:
+  discord-bot:
+    image: deadlock-bot:latest
+    build: .
+    container_name: DeadlockBot
+    restart: unless-stopped
+    env_file:
+      - .env
+    

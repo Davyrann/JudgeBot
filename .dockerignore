@@ -1,8 +1,3 @@
-.git/
-.github/
-database/
-venv/
-.env*
-CODE_OF_CONDUCT.md
-CONTRIBUTING.md
-UPDATES.md
+node_modules
+.env
+generated
