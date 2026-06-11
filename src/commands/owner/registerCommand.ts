@@ -1,7 +1,12 @@
 import client from "../../index.js";
 import path from 'node:path';
 import fs from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { SlashCommandBuilder, ChatInputCommandInteraction, REST, Routes, EmbedBuilder } from "discord.js";
+
+// 1. Rekonstruksi __dirname untuk kompatibilitas Build/Docker
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 export default {
     data: new SlashCommandBuilder()
@@ -35,17 +40,24 @@ export default {
             const target = interaction.options.getString('target');
             const commandsToSync: any[] = [];
 
-            const commandsPath = path.join(process.cwd(), 'src', 'commands');
+            // 2. Gunakan __dirname untuk path yang dinamis (Asumsi file ini ada di dalam sub-folder commands/utils/)
+            // Jika file ini ada langsung di dalam folder commands, ganti '..' menjadi '.'
+            const commandsPath = path.join(__dirname, '..'); 
+            
+            // 3. Filter ketat: Blokir file .d.ts
             const commandFiles = fs.readdirSync(commandsPath, { recursive: true }).filter(file => {
                 const fileName = String(file);
-                return fileName.endsWith('.ts') || fileName.endsWith('.js');
+                return (fileName.endsWith('.ts') || fileName.endsWith('.js')) && !fileName.endsWith('.d.ts');
             });
             
             await interaction.editReply({ content: `Sedang sinkronisasi ${target} commands...` });
             
             for (const file of commandFiles) {
                 const filePath = path.join(commandsPath, String(file));
-                const commandModule = await import(filePath);
+                
+                // 4. Konversi path ke URL absolute untuk ES Modules
+                const fileUrl = new URL(`file://${filePath}`).href;
+                const commandModule = await import(fileUrl);
                 const command = commandModule.default;
 
                 if (command && 'data' in command) {
@@ -60,10 +72,12 @@ export default {
                 }
             }
 
-            const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_BOT_TOKEN!);
+            // 5. Bersihkan spasi ambigu dari Token
+            const cleanToken = process.env.DISCORD_BOT_TOKEN?.trim() || '';
+            const rest = new REST({ version: '10' }).setToken(cleanToken);
 
             try {
-                if ( target === 'guild') {
+                if (target === 'guild') {
                     await rest.put(
                         Routes.applicationGuildCommands(interaction.client.user!.id, interaction.guildId!),
                         { body: commandsToSync }
@@ -101,6 +115,5 @@ export default {
         } catch (error) {
             console.error('Error executing sync command:', error);
         }
-        
     }
 }

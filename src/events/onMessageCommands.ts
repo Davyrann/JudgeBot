@@ -1,6 +1,11 @@
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from 'node:url';
 import { Events, Message, REST, Routes, EmbedBuilder } from "discord.js";
+
+// 1. Rekonstruksi __dirname untuk kompatibilitas Build/Docker
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 export default {
     name: Events.MessageCreate,
@@ -24,17 +29,23 @@ export default {
             const loadingMessage = await message.reply('🔄 Sedang memproses sinkronisasi API...');
 
             const commandsToSync: any[] = [];
-            const commandsPath = path.join(process.cwd(), 'src', 'commands');
             
             try {
+                // 2. Gunakan __dirname relatif untuk mencari folder commands
+                const commandsPath = path.join(__dirname, '..', 'commands');
+                
+                // 3. Filter ketat: Hanya .js / .ts dan BUKAN .d.ts
                 const commandFiles = fs.readdirSync(commandsPath, { recursive: true }).filter(file => { 
                     const fileName = String(file); 
-                    return fileName.endsWith('.ts') || fileName.endsWith('.js');
+                    return (fileName.endsWith('.ts') || fileName.endsWith('.js')) && !fileName.endsWith('.d.ts');
                 });
 
                 for (const file of commandFiles) {
                     const filePath = path.join(commandsPath, String(file));
-                    const commandModule = await import(filePath);
+                    
+                    // 4. Konversi ke URL agar aman di-import oleh ES Modules
+                    const fileUrl = new URL(`file://${filePath}`).href;
+                    const commandModule = await import(fileUrl);
                     const command = commandModule.default;
                    
                     if (command && 'data' in command) {
@@ -47,7 +58,9 @@ export default {
                     }
                 }
 
-                const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_BOT_TOKEN!);
+                // 5. Bersihkan karakter ambigu pada Token
+                const cleanToken = process.env.DISCORD_BOT_TOKEN?.trim() || '';
+                const rest = new REST({ version: '10' }).setToken(cleanToken);
 
                 if (target === 'global') {
                     await rest.put(
