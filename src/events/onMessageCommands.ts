@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from 'node:url';
 import { Events, Message, REST, Routes, EmbedBuilder } from "discord.js";
+import client from "../index.js";
 
 // 1. Rekonstruksi __dirname untuk kompatibilitas Build/Docker
 const __filename = fileURLToPath(import.meta.url);
@@ -14,12 +15,15 @@ export default {
         
         if (message.author.bot || !message.guild) return;
 
+        //#region Sync
         if (message.content.startsWith(`${process.env.PREFIX}sync`)) {
             if (message.author.id !== process.env.OWNER_ID) return;
 
             const args = message.content.split(' ');
             const target = args[1];
-
+            if ('sendTyping' in message.channel) {
+                await message.channel.sendTyping();
+            }
             // Validasi input
             if (!target || (target !== 'global' && target !== 'guild')) {
                 await message.reply('❌ Format salah! Gunakan: `!sync global` atau `!sync guild`');
@@ -82,18 +86,86 @@ export default {
                     .setDescription(`Berhasil melakukan sinkronisasi **${commandsToSync.length}** *${target}* commands ke Discord API.`)
                     .addFields(
                         { 
-                            name: 'Daftar Commands', 
+                            name: '_Daftar Commands_', 
                             value: commandsToSync.length > 0 ? commandList : 'Tidak ada command yang disinkronisasi.' 
                         }
                     )
                     .setTimestamp()
-                    .setFooter({ text: 'JudgeBot System' });
+                    .setFooter({ text: 'Owner Command' });
 
                 await loadingMessage.edit({ content: '', embeds: [successEmbed] });
 
             } catch (error) {
                 console.error('Error saat sync:', error);
                 await loadingMessage.edit('❌ Terjadi kesalahan saat mencoba sinkronisasi API. Cek console log.');
+            }
+        }
+        //#endregion
+
+        //#region Unsync
+        if (message.content.startsWith(`${process.env.PREFIX}unsync`)) {
+            // Validasi Owner
+            if (message.author.id !== process.env.OWNER_ID) {
+                await message.reply('Lau siape mpruy? Cuma owner yang bisa pake command ini.');
+                return;
+            }
+
+            if ('sendTyping' in message.channel) {
+                await message.channel.sendTyping();
+            }
+
+            const args = message.content.split(' ');
+            const target = args[1];
+
+            // Validasi input parameter
+            if (!target || (target !== 'global' && target !== 'guild')) {
+                await message.reply('Format salah! Gunakan: `!unsync global` atau `!unsync guild`');
+                return;
+            }
+
+            const loadingMessage = await message.reply(`Sedang menyapu bersih commands di **${target}**...`);
+
+            try {
+                // 2. Siapkan REST API dan bersihkan Token
+                const cleanToken = process.env.DISCORD_BOT_TOKEN?.trim() || '';
+                const rest = new REST({ version: '10' }).setToken(cleanToken);
+
+                // 3. Eksekusi sapu bersih (Kirim array kosong [])
+                if (target === 'global') {
+                    await rest.put(
+                        Routes.applicationCommands(process.env.CLIENT_ID!),
+                        { body: [] }
+                    );
+                } else {
+                    await rest.put(
+                        Routes.applicationGuildCommands(process.env.CLIENT_ID!, message.guild.id),
+                        { body: [] }
+                    );
+                }
+
+                // 4. Bangun Embed Sukses
+                const successEmbed = new EmbedBuilder()
+                    .setColor('#ff0000') // Warna merah khas untuk aksi penghapusan
+                    .setTitle('Unsync Command Berhasil!')
+                    .setDescription(`Seluruh slash commands lama di **${target}** telah disapu bersih dari API Discord.`)
+                    .setTimestamp()
+                    .setFooter({ text: `Owner Command` })
+                    .setFields(
+                        {
+                            name: '_Info Tambahan_',
+                            value: `Jika kamu melakukan **unsync global**, semua commands akan dihapus dari semua server. Pastikan untuk melakukan **sync** ulang setelahnya untuk mengembalikan commands yang diinginkan.`
+                        },
+                        {
+                            name: '_Peringatan_',
+                            value: 'Jangan terlalu sering melakukan unsync global karena bisa menyebabkan rate limit dari Discord API. Gunakan dengan bijak!'
+                        }
+                    );
+
+                await loadingMessage.edit({ content: '', embeds: [successEmbed] });
+
+            } catch (error) {
+                console.error('Error saat unsync via prefix:', error);
+                await loadingMessage.edit('❌ Terjadi kesalahan API saat mencoba menghapus commands. Cek console server.');
             }
         }
     }
